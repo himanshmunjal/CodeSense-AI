@@ -131,7 +131,9 @@ class QdrantIndexer:
         delete_chunks_for_file() before upserting fresh ones.
 
         COLLECTION SCHEMA DECISIONS:
-        - Two named vectors: "semantic" (768-dim) and "structural" (128-dim).
+        - Two named vectors: "semantic" (settings.semantic_embedding_dim —
+          384 for the default bge-small-en-v1.5 embedder) and "structural"
+          (128-dim).
           Having two separate named vectors per point — rather than
           concatenating them into one long vector — lets us search against
           either embedding independently, which is needed for the semantic-only
@@ -167,10 +169,15 @@ class QdrantIndexer:
         self._client.create_collection(
             collection_name=collection_name,
             vectors_config={
-                # Semantic vector: CodeBERT produces 768-dimensional embeddings.
-                # These capture the *meaning* of a function — what it does.
+                # Semantic vector: the configured embedding model (bge-small
+                # by default) produces settings.semantic_embedding_dim-
+                # dimensional embeddings capturing *meaning* — what a
+                # function does. NOTE: this must be recreated (not just
+                # re-upserted into) if you change to a model with a
+                # different output dimension — Qdrant rejects mismatched
+                # vector sizes on upsert rather than resizing in place.
                 VECTOR_SEMANTIC: qmodels.VectorParams(
-                    size=settings.semantic_embedding_dim,   # 768
+                    size=settings.semantic_embedding_dim,
                     distance=qmodels.Distance.COSINE,
                 ),
                 # Structural vector: node2vec produces 128-dimensional embeddings.
@@ -295,15 +302,15 @@ class QdrantIndexer:
         # continue rather than aborting the entire ingestion.
         valid_chunks = []
         for chunk in chunks:
-            if chunk.semantic_embedding is None:
+            if chunk.semantic_vector is None:
                 logger.warning(
-                    f"Skipping chunk '{chunk.function_name}' in {chunk.file_path} "
+                    f"Skipping chunk '{chunk.entity_name}' in {chunk.file_path} "
                     f"— missing semantic embedding."
                 )
                 continue
-            if chunk.structural_embedding is None:
+            if chunk.structural_vector is None:
                 logger.warning(
-                    f"Skipping chunk '{chunk.function_name}' in {chunk.file_path} "
+                    f"Skipping chunk '{chunk.entity_name}' in {chunk.file_path} "
                     f"— missing structural embedding."
                 )
                 continue
@@ -328,33 +335,22 @@ class QdrantIndexer:
                     id=str(
                         uuid.uuid5(
                             uuid.NAMESPACE_URL,
-                            f"{owner}/{repo}/{chunk.file_path}/{chunk.function_name}"
+                            f"{owner}/{repo}/{chunk.file_path}/{chunk.entity_name}"
                         )
                     ),
                     # Named vectors — each key must match the collection's
                     # vector config defined in ensure_collection().
                     vector={
-                        VECTOR_SEMANTIC:   chunk.semantic_embedding,
-                        VECTOR_STRUCTURAL: chunk.structural_embedding,
+                        VECTOR_SEMANTIC:   chunk.semantic_vector,
+                        VECTOR_STRUCTURAL: chunk.structural_vector,
                     },
                     # Payload is the metadata that gets returned with search
-                    # results and used for filtering. Store everything the
-                    # UI and generation layer might need.
-                    payload={
-                        "file_path":         chunk.file_path,
-                        "function_name":     chunk.function_name,
-                        "start_line":        chunk.start_line,
-                        "end_line":          chunk.end_line,
-                        "language":          chunk.language,
-                        "complexity":        chunk.complexity,
-                        "last_modified":     chunk.last_modified,
-                        "docstring":         chunk.docstring,
-                        "source_code":       chunk.source_code,
-                        "class_name":        chunk.class_name,
-                        "is_method":         chunk.is_method,
-                        "calls":             chunk.calls,          # list of function names this calls
-                        "called_by":         chunk.called_by,      # list of callers (populated later)
-                    },
+                    # results and used for filtering. CodeChunk.to_qdrant_payload()
+                    # is the single source of truth for payload shape — see
+                    # indexing/chunk_schema.py for exactly what fields this includes
+                    # (it deliberately excludes the vectors, which are stored
+                    # separately above, and flattens enums/datetimes to primitives).
+                    payload=chunk.to_qdrant_payload(),
                 )
                 for chunk in batch
             ]

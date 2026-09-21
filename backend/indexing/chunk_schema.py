@@ -111,6 +111,7 @@ class Language(str, Enum):
     JAVASCRIPT = "javascript"
     TYPESCRIPT = "typescript"
     JAVA       = "java"
+    GO         = "go"
     UNKNOWN    = "unknown"
 
 
@@ -466,12 +467,35 @@ class CodeChunk(BaseModel):
         if self.docstring:
             parts.append(self.docstring.strip())
 
-        # Include a truncated version of the source code body
-        # 400 chars ≈ 100 tokens, leaving headroom for signature + docstring
-        code_preview = self.source_code[:400]
-        if len(self.source_code) > 400:
-            # Keep a 100-char suffix to capture return types and final logic
-            code_preview += " ... " + self.source_code[-100:]
+        # Include a truncated version of the source code body.
+        # 1500 chars ≈ 375 tokens, leaving ~135 tokens of headroom for
+        # signature + docstring within the embedding model's 512-token
+        # limit (see embeddings/code_embedder.py MAX_TOKEN_LENGTH) — safely
+        # conservative for typical signature/docstring lengths, and the
+        # tokenizer truncates further on its own for any chunk that still
+        # overflows rather than erroring.
+        #
+        # WHY THIS WAS RAISED FROM 400 CHARS (~100 tokens):
+        # A 400-char window is short enough to systematically bias ranking
+        # toward whichever of two similar files happens to have its most
+        # relevant content earliest — observed directly: two files with
+        # near-identical MongoDB connection setup (a real app's main.py,
+        # and a one-off migration script new.py) ranked the throwaway
+        # script's module chunk higher for "where is the data stored?",
+        # purely because its connection code sat in the first 400 characters
+        # while the real app's was pushed slightly later by more imports.
+        # The LLM then confidently described the placeholder/example
+        # connection string from the wrong file as if it were the real one.
+        # This isn't a one-repo quirk — MODULE chunks in particular (see
+        # MetadataBuilder.build_module_chunk) can be many KB of full file
+        # content, so a short truncation window means most of any
+        # meaningfully-sized file's module chunk is invisible to embedding
+        # regardless of which file it is.
+        code_preview = self.source_code[:1500]
+        if len(self.source_code) > 1500:
+            # Keep a suffix to capture return types and final logic that a
+            # pure head-truncation would otherwise always miss.
+            code_preview += " ... " + self.source_code[-150:]
         parts.append(code_preview)
 
         return "\n".join(parts)

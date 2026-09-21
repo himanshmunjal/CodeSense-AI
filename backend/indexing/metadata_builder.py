@@ -285,15 +285,20 @@ class MetadataBuilder:
         builds the call graph over all parsed entities, then calls this method
         to enrich every chunk with accurate graph metrics (second pass).
 
-        The call graph nodes are keyed by fully_qualified_name (e.g.
-        "Router.add_api_route"). We look up each chunk by that key.
-        Chunks not present in the graph (e.g. private helpers never called
-        by other tracked code) simply keep their default None values.
+        The call graph nodes are keyed "{file_path}::{fully_qualified_name}"
+        (e.g. "fastapi/routing.py::Router.add_api_route"), not bare
+        fully_qualified_name — this matches the convention
+        retrieval/graph_retriever.py and tasks/celery_worker.py already use,
+        which disambiguates same-named functions/methods defined in
+        different files. Chunks not present in the graph (e.g. private
+        helpers never called by other tracked code) simply keep their
+        default None values.
 
         Args:
             chunks:     The list of all CodeChunk objects built in the first pass.
-            call_graph: A networkx DiGraph where nodes are fully_qualified_names
-                        and edges are (caller, callee) relationships.
+            call_graph: A networkx DiGraph where nodes are
+                        "{file_path}::{fully_qualified_name}" and edges are
+                        (caller, callee) relationships.
 
         Returns:
             The same list of chunks, mutated in-place with in_degree and
@@ -302,7 +307,7 @@ class MetadataBuilder:
         enriched_count = 0
 
         for chunk in chunks:
-            node_key = chunk.fully_qualified_name
+            node_key = f"{chunk.file_path}::{chunk.fully_qualified_name}"
 
             if call_graph.has_node(node_key):
                 # in_degree: how many other functions call this one
@@ -587,6 +592,7 @@ def infer_language_from_path(file_path: str) -> Language:
         ".ts":   Language.TYPESCRIPT,
         ".tsx":  Language.TYPESCRIPT,
         ".java": Language.JAVA,
+        ".go":   Language.GO,
     }
     ext = Path(file_path).suffix.lower()
     return EXTENSION_MAP.get(ext, Language.UNKNOWN)
