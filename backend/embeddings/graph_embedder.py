@@ -39,6 +39,8 @@ This file is consumed by:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
+import os
+
 import numpy as np
 import networkx as nx
 from typing import Dict, Optional, List
@@ -315,7 +317,13 @@ class GraphEmbedder:
           - q=0.5:          Biases toward DFS-like structural equivalence.
                             We want "same role in the codebase" not
                             "same module cluster".
-          - workers=-1:     Use all available CPU cores for random walk generation.
+          - workers=os.cpu_count(): Use all available CPU cores for random walk
+                            generation. The node2vec package (unlike sklearn)
+                            takes this literally and passes it straight to
+                            numpy.array_split() — it does NOT support sklearn's
+                            "-1 means all cores" convention, so passing -1
+                            raises "ValueError: number sections must be larger
+                            than 0."
 
         Args:
             graph: An undirected networkx Graph.
@@ -344,7 +352,7 @@ class GraphEmbedder:
             num_walks=NUM_WALKS,
             p=P_PARAM,
             q=Q_PARAM,
-            workers=-1,     # Use all CPU cores
+            workers=os.cpu_count() or 1,  # node2vec needs a real positive int, not -1
             quiet=True,
         )
 

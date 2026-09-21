@@ -10,10 +10,19 @@ Import this module anywhere in the codebase:
 Never import os.getenv() directly in other modules — always go through settings.
 """
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 from pydantic import Field, model_validator
 from functools import lru_cache
 from typing import List
+
+# .env lives at the project root (one level above backend/), but this module
+# is imported from many different working directories (uvicorn run from
+# backend/, pytest run from repo root, Celery workers, etc.). Resolving the
+# path relative to this file — not the process's CWD — means it's found
+# consistently no matter where the app is launched from.
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -26,8 +35,23 @@ class Settings(BaseSettings):
     # ── Groq ────────────────────────────────────────────────────
     groq_api_key: str = Field(..., env="GROQ_API_KEY")
     groq_model: str = Field(
-        default="llama-3.1-70b-versatile",
+        # llama-3.1-70b-versatile (the model this project was originally
+        # benchmarked against, see Architecture-notes.md §3) was decommissioned
+        # by Groq after this project's initial development. openai/gpt-oss-120b
+        # is Groq's current large general-purpose model as of testing this
+        # against a live account — verify against
+        # https://console.groq.com/docs/models if this starts erroring with
+        # "model_decommissioned" again, Groq's catalog changes over time.
+        default="openai/gpt-oss-120b",
         env="GROQ_MODEL"
+    )
+    # Groq exposes an OpenAI-compatible chat completions endpoint, so the
+    # `openai` SDK client can be reused as-is by pointing base_url here
+    # instead of at api.openai.com (see Architecture-notes.md §3). This is
+    # the ONLY thing that makes a Groq call different from an OpenAI call.
+    groq_base_url: str = Field(
+        default="https://api.groq.com/openai/v1",
+        env="GROQ_BASE_URL"
     )
     # Rate limit handling — free tier is ~30 req/min
     groq_retry_delay: float = Field(default=2.0, env="GROQ_RETRY_DELAY")
@@ -67,17 +91,32 @@ class Settings(BaseSettings):
 
     # ── Embedding Models ─────────────────────────────────────────
     # NOTE: Embeddings are local — no API key needed.
-    # CodeBERT downloads ~500MB on first run, cached to transformers_cache.
+    # Field name kept as "codebert_model_name" for .env backward-compat even
+    # though the default below is no longer CodeBERT — see the rationale in
+    # embeddings/code_embedder.py's module docstring: CodeBERT's raw
+    # mean-pooled embeddings measured as near-random for retrieval (all
+    # candidates for a query landed in a flat 0.94-0.965 cosine band,
+    # including irrelevant chunks) on this project's real indexed repos.
+    # BAAI/bge-small-en-v1.5 measured 56% Recall@5 on the same corpora
+    # (up from near-zero) in the evaluation session that made this change —
+    # re-run evaluation/run_eval.py before changing this again, don't swap
+    # on spot checks.
+    # bge-small downloads ~130MB on first run, cached to transformers_cache.
     codebert_model_name: str = Field(
-        default="microsoft/codebert-base",
+        default="BAAI/bge-small-en-v1.5",
         env="CODEBERT_MODEL_NAME"
     )
     transformers_cache: str = Field(
         default="./.model_cache",
         env="TRANSFORMERS_CACHE"
     )
+    # bge-small-en-v1.5 is 384-dim (CLS-pooled), not 768 like CodeBERT.
+    # embeddings/code_embedder.py.get_embedding_dim() reads this from the
+    # loaded model itself rather than trusting this constant, but Qdrant
+    # collections still need re-creating (not just re-upserting) if you
+    # change to a model with a different dimension — see qdrant_client.py.
     semantic_embedding_dim: int = Field(
-        default=768,
+        default=384,
         env="SEMANTIC_EMBEDDING_DIM"
     )
     structural_embedding_dim: int = Field(
@@ -86,11 +125,33 @@ class Settings(BaseSettings):
     )
 
     # ── Retrieval Settings ────────────────────────────────────────
+    # 0.65 was calibrated for microsoft/codebert-base, whose raw mean-pooled
+    # cosine scores were anisotropic (nearly everything landed in a flat
+    # 0.94-0.965 band regardless of relevance — see code_embedder.py). That
+    # made 0.65 an effectively meaningless gate for that model, but it is a
+    # HARD gate for bge-small-en-v1.5's genuinely discriminative scores:
+    # measured directly against this project's real indexed repos, a clearly
+    # irrelevant control query ("what's the weather on Mars") topped out at
+    # 0.43 cosine similarity, while confirmed-correct answers for real eval
+    # queries scored as low as 0.56-0.61 — i.e. a 0.65 floor was silently
+    # discarding correct chunks before the reranker ever saw them, entirely
+    # independent of reranker quality. 0.5 keeps a wide safety margin above
+    # the measured irrelevant-query ceiling (0.43) while admitting those
+    # correct-but-not-top-cosine matches. Re-measure before changing this
+    # again if the embedding model changes (see code_embedder.py docstring).
     retrieval_confidence_threshold: float = Field(
-        default=0.65,
+        default=0.5,
         env="RETRIEVAL_CONFIDENCE_THRESHOLD"
     )
-    retrieval_top_k: int = Field(default=20, env="RETRIEVAL_TOP_K")
+    # Raised from 20: with the same real queries, some correct answers
+    # ranked in the 30s-50s by raw cosine similarity alone (bge-small isn't
+    # code-specialized) — reranking can only recover a correct answer if
+    # it's actually in the candidate pool handed to it. 30 is a measured
+    # middle ground, not the ceiling — some real queries needed 50+ to
+    # include the correct chunk; going that high wasn't pursued further
+    # since it stops paying off at larger repo scale (every query reranks
+    # a much bigger slice of the corpus).
+    retrieval_top_k: int = Field(default=30, env="RETRIEVAL_TOP_K")
     reranker_top_n: int = Field(default=5, env="RERANKER_TOP_N")
 
     # Hybrid weights — must sum to 1.0
@@ -123,10 +184,25 @@ class Settings(BaseSettings):
         default=100_000,
         env="INGESTION_MAX_FILES"
     )
-    ingestion_skip_extensions: List[str] = Field(
-        default=[".min.js", ".min.css", ".lock", ".sum", ".mod"],
-        env="INGESTION_SKIP_EXTENSIONS"
+    # pydantic-settings tries to JSON-decode any List[...]-typed field read
+    # from a .env value, but .env stores this as a plain comma-separated
+    # string (INGESTION_SKIP_EXTENSIONS=.min.js,.min.css,...), which isn't
+    # valid JSON — that decode happens before field_validators ever run, so
+    # it can't be fixed with a validator. Instead the env-backed field is a
+    # plain str, and `ingestion_skip_extensions` below exposes it as a list.
+    ingestion_skip_extensions_csv: str = Field(
+        default=".min.js,.min.css,.lock,.sum,.mod",
+        # Field(env=...) is pydantic v1 syntax and has no effect in pydantic
+        # v2 / pydantic-settings — env-var matching there is by uppercased
+        # field name, or (since the field name itself was renamed to
+        # _csv to dodge the List[...] JSON-decode issue above) an explicit
+        # validation_alias, which IS respected.
+        validation_alias="INGESTION_SKIP_EXTENSIONS",
     )
+
+    @property
+    def ingestion_skip_extensions(self) -> List[str]:
+        return [ext.strip() for ext in self.ingestion_skip_extensions_csv.split(",") if ext.strip()]
 
     # Supported languages → file extensions mapping
     # Not an env var — change here if adding language support
@@ -135,6 +211,7 @@ class Settings(BaseSettings):
         "javascript": [".js", ".mjs", ".cjs"],
         "typescript": [".ts", ".tsx"],
         "java":       [".java"],
+        "go":         [".go"],
     }
 
     # ── FastAPI Backend ───────────────────────────────────────────
@@ -205,7 +282,7 @@ class Settings(BaseSettings):
         return None
 
     class Config:
-        env_file = ".env"
+        env_file = str(_ENV_FILE)
         env_file_encoding = "utf-8"
         env_list_separator = ","   # Allows INGESTION_SKIP_EXTENSIONS=.min.js,.lock
 

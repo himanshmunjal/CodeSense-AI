@@ -3,43 +3,56 @@ code_embedder.py
 ─────────────────
 PURPOSE
 -------
-Generates dense vector embeddings for code chunks using CodeBERT
-(microsoft/codebert-base), a transformer model pre-trained specifically
-on code and natural language pairs across six programming languages.
+Generates dense vector embeddings for code chunks using a sentence-embedding
+model loaded via the `sentence-transformers` library.
 
-WHY THIS FILE EXISTS
---------------------
-Generic text embedding models (e.g. text-embedding-ada-002 trained on
-web text) perform poorly on source code because:
+WHY sentence-transformers INSTEAD OF HAND-ROLLED AutoModel + POOLING
+----------------------------------------------------------------------
+This module used to load `microsoft/codebert-base` directly via
+transformers' AutoModel/AutoTokenizer and manually mean-pool + L2-normalize
+the last hidden state. That was a real, measured problem for two reasons:
 
-  1. Code tokens like `self`, `->`, `[]`, `async/await` are out-of-distribution
-     for models trained on prose.
-  2. Variable names, function signatures, and type annotations carry semantic
-     meaning that generic models underweight.
-  3. Code has structural patterns (indentation, block scope, call chains)
-     that text models are not trained to encode.
+  1. CodeBERT is NOT contrastively trained (no "pull similar pairs together,
+     push dissimilar pairs apart" objective) — it's a masked-language-model /
+     replaced-token-detection encoder. Mean-pooling its raw hidden states for
+     cosine similarity produces a well-documented "anisotropic" embedding
+     space: nearly everything ends up in a narrow high-similarity band
+     regardless of actual relevance. Measured on this project's own indexed
+     repos: 20 candidates for one query all scored between 0.94–0.965 cosine
+     similarity — including completely unrelated code — making retrieval
+     recall close to random.
+  2. Hand-rolling pooling hard-codes an assumption (mean pooling, 768-dim)
+     that is specific to CodeBERT. Swapping to any other model means
+     re-deriving its correct pooling strategy (CLS-token vs. mean-pooling)
+     and dimension by hand — get it wrong and embeddings are silently
+     corrupted with no error. The current default, `BAAI/bge-small-en-v1.5`,
+     actually uses CLS-token pooling at 384 dimensions — different on both
+     counts from CodeBERT's mean-pooling at 768.
 
-CodeBERT was trained on GitHub code + docstrings using both masked language
-modeling AND replaced token detection on code.  It produces embeddings where
-semantically similar code (e.g. two different implementations of binary search)
-cluster together — which is exactly what we need for retrieval.
+`sentence_transformers.SentenceTransformer` reads a model's own pooling
+config (its `1_Pooling/config.json`) and applies the pooling strategy that
+model was actually trained with, automatically, for whatever model is
+configured — eliminating this entire bug class for any future model change.
 
-WHY CODEBERT OVER OPENAI text-embedding-3-small FOR CODE?
-----------------------------------------------------------
-CodeBERT is the primary embedder; openai_embedder.py is the fallback for:
-  • Queries that mix natural language with code (docstring-heavy chunks)
-  • Languages CodeBERT handles poorly (TypeScript edge cases)
-  • When a GPU is not available and CodeBERT inference is too slow on CPU
-
-This distinction is a deliberate architectural decision that you should
-be able to defend in interviews — it shows you chose tools based on the
-actual data distribution, not just convenience.
+WHY BAAI/bge-small-en-v1.5 AS THE DEFAULT
+-------------------------------------------
+Measured (not assumed) on this project's real indexed corpora (Go, JS/React,
+Java — 687 chunks across 3 repos) against a 16-query hand-labeled eval set:
+Recall@5 improved from near-zero (CodeBERT's flat similarity band meant the
+correct chunk rarely made the top 20 candidates at all) to 56%. bge-small
+is a small (384-dim, ~130MB), fast, strongly contrastively-trained
+general-purpose retrieval model — not code-specific, but empirically it
+out-performed a CodeSearchNet-tuned code model on this project's own data
+(see git history / conversation notes from the evaluation session).
+Re-run `evaluation/run_eval.py` against a candidate before changing this
+default again — do not swap based on spot checks (see that mistake in the
+same evaluation session's history).
 
 USED BY
 -------
 - indexing/qdrant_client.py        receives embeddings to upsert as vectors
-- embeddings/embedding_cache.py    caches results to avoid redundant inference
-- notebooks/hybrid_retrieval_experiment.ipynb  compared against OpenAI embedder
+- retrieval/semantic_retriever.py  calls embed_query() at query time
+- tasks/celery_worker.py           calls embed_batch() during ingestion
 """
 
 from __future__ import annotations
@@ -51,32 +64,26 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import torch
-from transformers import AutoModel, AutoTokenizer, PreTrainedModel, PreTrainedTokenizerBase
+from sentence_transformers import SentenceTransformer
+
+from config import settings
 
 logger = logging.getLogger(__name__)
 
 # ── Model Constants ────────────────────────────────────────────────────────────
 
-# The HuggingFace model identifier for CodeBERT.
-# We pin the exact model name (not a version tag) so that any future
-# HuggingFace Hub updates do not silently change embedding dimensions.
-CODEBERT_MODEL_ID = "microsoft/codebert-base"
+# The HuggingFace model identifier for the default embedder. Overridable via
+# settings.codebert_model_name / CODEBERT_MODEL_NAME env var (name kept for
+# .env backward-compatibility even though the default is no longer CodeBERT).
+DEFAULT_MODEL_ID = settings.codebert_model_name
 
-# CodeBERT produces 768-dimensional embeddings (same as BERT-base).
-# This constant is used by indexing/qdrant_client.py to configure
-# the Qdrant collection's vector size at creation time.
-EMBEDDING_DIM = 768
-
-# CodeBERT's maximum input length in tokens (BERT architecture limit).
-# Chunks longer than this are truncated.  The chunking strategy in
-# tree_sitter_parser.py is designed to keep functions under this limit,
-# but we enforce it here as a safety net.
+# Maximum input length in tokens. Chunks longer than this are truncated.
+# The chunking strategy in tree_sitter_parser.py is designed to keep
+# functions under this limit, but we enforce it here as a safety net.
 MAX_TOKEN_LENGTH = 512
 
 # Default batch size for inference.  Higher = faster on GPU, but risks OOM.
-# 16 is a safe default for a 16GB GPU with 512-token inputs.
-# Reduce to 4–8 if you encounter CUDA out-of-memory errors.
+# 16 is a safe default for CPU/MPS with 512-token inputs.
 DEFAULT_BATCH_SIZE = 16
 
 
@@ -95,7 +102,8 @@ class EmbeddingResult:
         Unique identifier for this chunk (matches the Qdrant point ID).
         Format: "<repo>/<file_path>:<start_line>-<end_line>"
     embedding : list[float]
-        The 768-dimensional embedding vector as a plain Python list.
+        The embedding vector as a plain Python list (dimension depends on
+        the loaded model — see CodeEmbedder.get_embedding_dim()).
         Stored as list (not np.ndarray) because Qdrant's client expects
         a list and JSON serialization is simpler.
     model_id : str
@@ -171,22 +179,23 @@ class BatchEmbeddingResult:
 
 class CodeEmbedder:
     """
-    Wraps the CodeBERT model to produce semantic embeddings for code chunks.
+    Wraps a sentence-transformers embedding model to produce semantic
+    embeddings for code chunks.
 
     The class handles:
       • Lazy model loading (model is loaded on first use, not at import time)
-      • Device selection (CUDA → MPS → CPU, in that priority order)
-      • Tokenization with truncation and padding
-      • Mean-pooling of token embeddings → single chunk embedding
-      • L2 normalization of output vectors (required for cosine similarity
-        in Qdrant, which uses dot product on normalized vectors)
+      • Device selection (CUDA → MPS → CPU, in that priority order — handled
+        by sentence-transformers itself)
+      • Tokenization, pooling, and L2 normalization — all per the loaded
+        model's own config, not hard-coded (see module docstring for why
+        that matters)
       • Batched inference for throughput
 
     Parameters
     ----------
     model_id : str
-        HuggingFace model identifier.  Defaults to CODEBERT_MODEL_ID.
-        Override for experiments (e.g. to try graphcodebert-base).
+        HuggingFace model identifier. Defaults to settings.codebert_model_name
+        (BAAI/bge-small-en-v1.5 by default — see module docstring for why).
     device : str | None
         PyTorch device string ("cuda", "mps", "cpu").  If None, the
         best available device is selected automatically.
@@ -199,7 +208,7 @@ class CodeEmbedder:
 
     def __init__(
         self,
-        model_id: str = CODEBERT_MODEL_ID,
+        model_id: str = DEFAULT_MODEL_ID,
         device: str | None = None,
         batch_size: int = DEFAULT_BATCH_SIZE,
         cache_dir: str | Path | None = None,
@@ -207,70 +216,47 @@ class CodeEmbedder:
         self.model_id = model_id
         self.batch_size = batch_size
         self.cache_dir = str(cache_dir) if cache_dir else None
-
-        # Device selection: prefer CUDA, fall back to Apple MPS, then CPU.
-        if device is not None:
-            self.device = torch.device(device)
-        elif torch.cuda.is_available():
-            self.device = torch.device("cuda")
-            logger.info("CodeEmbedder: using CUDA (GPU)")
-        elif torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-            logger.info("CodeEmbedder: using MPS (Apple Silicon)")
-        else:
-            self.device = torch.device("cpu")
-            logger.warning(
-                "CodeEmbedder: no GPU found, using CPU. "
-                "Embedding will be slow for large repos. "
-                "Consider using openai_embedder.py as fallback."
-            )
+        self.device = device  # None lets SentenceTransformer auto-select CUDA/MPS/CPU
 
         # Lazy-loaded — set to None until _load_model() is called.
-        self._tokenizer: PreTrainedTokenizerBase | None = None
-        self._model: PreTrainedModel | None = None
+        self._model: SentenceTransformer | None = None
 
     # ── Model Loading ─────────────────────────────────────────────────────────
 
     def _load_model(self) -> None:
         """
-        Download and load the CodeBERT tokenizer and model weights.
+        Download and load the embedding model via sentence-transformers.
 
         Called lazily on the first embed() call.  Lazy loading is used
         because the FastAPI app imports this module at startup, but model
         loading should not block the app from starting up — it should only
         happen when the first ingestion job runs.
 
-        Model weights (~500MB) are cached locally by HuggingFace's
-        transformers library after the first download.
+        SentenceTransformer reads the model's own pooling config and applies
+        it automatically (see module docstring for why this matters) — no
+        manual mean-pooling / dimension bookkeeping needed here.
 
         Side effects:
-          - Sets self._tokenizer and self._model.
-          - Moves the model to self.device.
+          - Sets self._model.
+          - Moves the model to the selected device (auto if self.device is None).
           - Sets the model to eval mode (disables dropout).
         """
         if self._model is not None:
             return  # Already loaded — idempotent.
 
-        logger.info("Loading CodeBERT model '%s'...", self.model_id)
+        logger.info("Loading embedding model '%s'...", self.model_id)
         load_start = time.time()
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
+        self._model = SentenceTransformer(
             self.model_id,
-            cache_dir=self.cache_dir,
+            device=self.device,
+            cache_folder=self.cache_dir,
         )
-        self._model = AutoModel.from_pretrained(
-            self.model_id,
-            cache_dir=self.cache_dir,
-        )
-
-        # Move to device and set to eval mode.
-        # eval() disables dropout layers — critical because we want
-        # deterministic embeddings (same input → same output every time).
-        self._model = self._model.to(self.device)
         self._model.eval()
+        self.device = str(self._model.device)  # record what was actually selected
 
         load_time = time.time() - load_start
-        logger.info("CodeBERT loaded in %.1fs on device '%s'", load_time, self.device)
+        logger.info("Embedding model loaded in %.1fs on device '%s'", load_time, self.device)
 
     # ── Single Chunk Embedding ─────────────────────────────────────────────────
 
@@ -365,31 +351,14 @@ class CodeEmbedder:
         sub_batch: list[tuple[str, str]],
     ) -> list[EmbeddingResult]:
         """
-        Run a single forward pass through CodeBERT for one sub-batch.
+        Run a single encode() pass through the embedding model for one
+        sub-batch, using the model's own tokenizer, pooling, and
+        normalization — see the module docstring for why this replaced a
+        hand-rolled mean-pooling implementation.
 
-        Steps:
-          1. Tokenize all texts in the sub-batch with padding and truncation.
-          2. Run the tokenized inputs through CodeBERT.
-          3. Mean-pool the last hidden states across the token dimension.
-          4. L2-normalize the pooled vectors.
-          5. Wrap results in EmbeddingResult objects.
-
-        WHY MEAN POOLING INSTEAD OF [CLS] TOKEN?
-        -----------------------------------------
-        CodeBERT's [CLS] token embedding was trained for classification tasks
-        (is this code a docstring match?), not for semantic similarity.
-        Mean pooling over all token embeddings produces better similarity
-        properties for retrieval — this is empirically validated in the
-        sentence-transformers literature and in our own Day 8 experiment.
-
-        WHY L2 NORMALIZATION?
-        ----------------------
-        Qdrant's cosine similarity is computed as dot product after
-        normalizing stored vectors at index time.  By normalizing here at
-        embedding time, we ensure that:
-          1. All vectors have unit length → dot product = cosine similarity.
-          2. Embeddings are comparable across different batch sizes
-             (batch norm artifacts don't affect the magnitude).
+        Token-count / truncation stats are computed with a lightweight
+        separate tokenizer call purely for observability (the same numbers
+        this module has always logged) — encode() itself doesn't expose them.
 
         Parameters
         ----------
@@ -406,62 +375,22 @@ class CodeEmbedder:
 
         inference_start = time.time()
 
-        # ── Step 1: Tokenize ────────────────────────────────────────────────
-        encoded = self._tokenizer(
+        # Token-count / truncation stats only — not used for the embedding
+        # itself, which encode() tokenizes and truncates on its own.
+        tokenizer = self._model.tokenizer
+        encoded = tokenizer(texts, truncation=False, return_attention_mask=True)
+        token_counts = [len(ids) for ids in encoded["input_ids"]]
+        truncated_flags = [tc >= MAX_TOKEN_LENGTH for tc in token_counts]
+
+        # normalize_embeddings=True gives unit-length vectors so Qdrant's
+        # cosine similarity (dot product on normalized vectors) is correct.
+        embeddings_np: np.ndarray = self._model.encode(
             texts,
-            padding=True,           # Pad shorter sequences to the longest in batch.
-            truncation=True,        # Truncate sequences longer than MAX_TOKEN_LENGTH.
-            max_length=MAX_TOKEN_LENGTH,
-            return_tensors="pt",    # Return PyTorch tensors.
-            return_attention_mask=True,
+            batch_size=len(texts),
+            convert_to_numpy=True,
+            normalize_embeddings=True,
+            show_progress_bar=False,
         )
-
-        # Detect which inputs were truncated by checking if any sequence hit
-        # the max length (a heuristic — not 100% accurate but good enough).
-        token_counts = encoded["attention_mask"].sum(dim=1).tolist()
-        truncated_flags = [int(tc) >= MAX_TOKEN_LENGTH for tc in token_counts]
-
-        # Move tensors to the target device.
-        input_ids = encoded["input_ids"].to(self.device)
-        attention_mask = encoded["attention_mask"].to(self.device)
-
-        # ── Step 2: Forward Pass ────────────────────────────────────────────
-        with torch.no_grad():
-            # no_grad() disables gradient computation — we are doing inference,
-            # not training.  This halves memory usage and speeds up the pass.
-            outputs = self._model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-            )
-
-        # last_hidden_state: shape (batch_size, seq_len, hidden_dim=768)
-        last_hidden_state = outputs.last_hidden_state
-
-        # ── Step 3: Mean Pooling ────────────────────────────────────────────
-        # Expand the attention mask to match the hidden state dimensions so
-        # we can zero-out padding token embeddings before averaging.
-        # mask shape: (batch_size, seq_len) → (batch_size, seq_len, hidden_dim)
-        mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-
-        # Sum token embeddings, ignoring padding positions.
-        sum_embeddings = torch.sum(last_hidden_state * mask_expanded, dim=1)
-
-        # Count non-padding tokens per sequence for the average denominator.
-        sum_mask = torch.clamp(mask_expanded.sum(dim=1), min=1e-9)
-
-        # Mean-pooled embedding: shape (batch_size, 768)
-        mean_pooled = sum_embeddings / sum_mask
-
-        # ── Step 4: L2 Normalization ────────────────────────────────────────
-        # Normalize each embedding vector to unit length.
-        # After normalization: ||v|| = 1 for every vector.
-        norms = mean_pooled.norm(p=2, dim=1, keepdim=True)
-        normalized = mean_pooled / torch.clamp(norms, min=1e-9)
-
-        # ── Step 5: Convert to Python Lists ────────────────────────────────
-        # Move back to CPU and convert to numpy for list conversion.
-        # numpy() requires CPU tensors — .cpu() is a no-op if already on CPU.
-        embeddings_np: np.ndarray = normalized.cpu().numpy()
 
         inference_time_ms = (time.time() - inference_start) * 1000
         per_chunk_time = inference_time_ms / len(sub_batch)
@@ -491,10 +420,15 @@ class CodeEmbedder:
         convert a user's query into the same vector space as the indexed
         code chunks.
 
-        The query is prefixed with a special token pattern that CodeBERT
-        was trained to expect for code-search queries.  This prefix was
-        established in the CodeBERT paper (Feng et al., 2020) and improves
-        retrieval accuracy for natural language → code queries.
+        The query is prefixed with BAAI/bge's documented query instruction
+        ("Represent this sentence for searching relevant passages: ") — bge
+        models are trained asymmetrically: this prefix is applied to QUERY
+        text only, never to the indexed passages/chunks themselves, and
+        measurably improves retrieval for exactly this asymmetric-search use
+        case. NOTE: this prefix is specific to the bge model family — if
+        codebert_model_name is changed to a different model, check whether
+        that model has its own required query instruction (most
+        sentence-transformers model cards document this under "Usage").
 
         Parameters
         ----------
@@ -504,11 +438,10 @@ class CodeEmbedder:
         Returns
         -------
         list[float]
-            768-dimensional normalized embedding vector.
+            Normalized embedding vector (dimension depends on the loaded
+            model — see get_embedding_dim()).
         """
-        # The CodeBERT paper uses this prefix for NL→code retrieval tasks.
-        # It signals to the model that this is a query, not a code snippet.
-        prefixed_query = f"<query> {query.strip()}"
+        prefixed_query = f"Represent this sentence for searching relevant passages: {query.strip()}"
         result = self.embed(prefixed_query, chunk_id="__query__")
         return result.embedding
 
@@ -524,9 +457,9 @@ class CodeEmbedder:
 
         Called by tasks/celery_worker.py after the worker starts.
         """
-        logger.info("Running CodeBERT warmup pass...")
+        logger.info("Running embedding model warmup pass...")
         self.embed("def warmup(): pass", chunk_id="__warmup__")
-        logger.info("CodeBERT warmup complete")
+        logger.info("Embedding model warmup complete")
 
     def get_embedding_dim(self) -> int:
         """
@@ -538,26 +471,29 @@ class CodeEmbedder:
         Returns
         -------
         int
-            Dimensionality of the embedding vectors (768 for codebert-base).
+            Dimensionality of the embedding vectors for the loaded model
+            (e.g. 384 for bge-small-en-v1.5, 768 for codebert-base) — read
+            from the model itself, not hard-coded, so this stays correct
+            across model swaps without a matching code change.
         """
-        return EMBEDDING_DIM
+        self._load_model()
+        return self._model.get_sentence_embedding_dimension()
 
     def unload_model(self) -> None:
         """
         Release the model from GPU/CPU memory.
 
-        Call this when switching to a different embedding model
-        (e.g. falling back to openai_embedder.py) to free resources.
-        The model will be re-loaded lazily on the next embed() call.
+        Call this when switching to a different embedding model to free
+        resources. The model will be re-loaded lazily on the next embed()
+        call.
         """
         if self._model is not None:
+            import torch
             del self._model
-            del self._tokenizer
             self._model = None
-            self._tokenizer = None
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            logger.info("CodeBERT model unloaded from memory")
+            logger.info("Embedding model unloaded from memory")
 
     def __repr__(self) -> str:
         loaded = self._model is not None
