@@ -101,10 +101,20 @@ celery_app.conf.update(
 
 _CALL_PATTERN = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(")
 
+# Definitions also look like `name(` — `def __call__(self)` inside a nested
+# class would otherwise count as a CALL to every `__call__` in the repo.
+# Stripped before call matching: Python def/class, JS/TS function, Go func
+# (including `func (r *T) Name(` methods).
+_DEFINITION_PATTERN = re.compile(
+    r"\b(?:def|class|function\*?)\s+[A-Za-z_][A-Za-z0-9_]*"
+    r"|\bfunc\s*(?:\([^)]*\)\s*)?[A-Za-z_][A-Za-z0-9_]*"
+)
+
 # Python/JS/TS/Java keywords that look like calls but aren't user functions.
 _CALL_KEYWORDS = {
     "if", "for", "while", "switch", "catch", "return", "print", "super",
     "new", "async", "await", "yield", "with", "except", "elif",
+    "func", "function", "def", "lambda",
 }
 
 
@@ -128,7 +138,8 @@ def _resolve_call_edges(
 
     edges: list[CallEdge] = []
     for qualified_name, (entity, node_id) in all_functions.items():
-        called_names = set(_CALL_PATTERN.findall(entity.body_text)) - _CALL_KEYWORDS
+        body_without_definitions = _DEFINITION_PATTERN.sub(" ", entity.body_text)
+        called_names = set(_CALL_PATTERN.findall(body_without_definitions)) - _CALL_KEYWORDS
         called_names.discard(entity.name)  # skip self-recursion noise in edge count, still allowed below
         for called_name in called_names:
             for callee_qualified_name in by_bare_name.get(called_name, []):
