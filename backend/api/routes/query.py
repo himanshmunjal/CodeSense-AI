@@ -635,7 +635,10 @@ def _fetch_snippet_for_node(
     return "", ""
 
 
-_CITATION_PATTERN = re.compile(r"\[([^\]:]+):([^\]:]+):L?\d+[-–]L?\d+\]")
+_CITATION_PATTERN = re.compile(
+    r"[\[【`(]\s*([^\[\]【】`()\s:]+):([^\[\]【】`():]+):"
+    r"L?\d+\s*[-–]\s*L?\d+\s*[\]】`)]"
+)
 
 
 def _count_sources_used(answer: str, sources: "list[CodeSource]") -> int:
