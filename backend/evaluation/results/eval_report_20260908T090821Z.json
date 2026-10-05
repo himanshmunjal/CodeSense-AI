@@ -1,0 +1,414 @@
+{
+  "generated_at": "20260908T090821Z",
+  "base_url": "http://localhost:8000",
+  "summary": {
+    "overall": {
+      "n": 8,
+      "precision_at_5": 0.375,
+      "avg_confidence": 0.7278,
+      "refusal_rate": 0.25,
+      "error_rate": 0.0
+    },
+    "by_query_type": {
+      "lookup": {
+        "n": 7,
+        "precision_at_5": 0.4286,
+        "avg_confidence": 0.8317,
+        "refusal_rate": 0.1429,
+        "error_rate": 0.0
+      },
+      "relational": {
+        "n": 1,
+        "precision_at_5": 0.0,
+        "avg_confidence": 0.0,
+        "refusal_rate": 1.0,
+        "error_rate": 0.0
+      }
+    },
+    "ragas": {
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "ragas_error": "1 validation error for ChatOpenAI\n__root__\n  Did not find openai_api_key, please add an environment variable `OPENAI_API_KEY` which contains it, or pass `openai_api_key` as a named parameter. (type=value_error)"
+    },
+    "confidence_threshold": 0.65
+  },
+  "results": [
+    {
+      "id": "es-go-01",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "Where is the shared session data stored temporarily and how does it expire?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/redisclient/store.go",
+      "ground_truth_function": "CreateSession",
+      "answer": "The shared session data is kept in a Redis store, as indicated by the Store struct that holds a *redis.Client and a ttl (time\u2011to\u2011live) duration. The ttl field defines how long the data remains in Redis before it automatically expires. [backend/internal/redisclient/store.go:Store:17-20]",
+      "confidence": 0.9733,
+      "detected_query_type": "lookup",
+      "sources": [
+        {
+          "file_path": "backend/internal/models/session.go",
+          "function_name": "CreateSessionResponse",
+          "start_line": 53,
+          "end_line": 57,
+          "language": "go",
+          "relevance_score": 0.9393,
+          "snippet": "CreateSessionResponse struct {\n\tCode      string    `json:\"code\"`\n\tType      SessionType `json:\"type\"`\n\tExpiresAt time.Time `json:\"expires_at\"`\n}"
+        },
+        {
+          "file_path": "frontend/src/pages/CreateSessionPage.jsx",
+          "function_name": "handleCreate",
+          "start_line": 42,
+          "end_line": 66,
+          "language": "javascript",
+          "relevance_score": 0.9448,
+          "snippet": "async function handleCreate() {\n    setLoading(true);\n    setError(null);\n    try {\n      const res = await api.createSession(type, type === \"shared_workspace\" ? maxParticipants : undefined);\n      // owner_token itself lives in an HttpOnly cookie (unreadable from JS, by\n      // design) and authorizes DELETE /sessions/:code server-side; this flag\n      // just lets the room UI know to show the \"end session\" control.\n      sessionStorage.setItem(`owner:${res.code}`, \"1\");\n\n      // Generate the E2E encryption key entirely client-side. It is exported\n      // into the URL fragment (never sent in a request) so SessionRoomPage\n      // can pick it up on load and the server never learns it.\n      const key = await generateSessionKey();\n      const keyB64 = await exportKey(key);\n      storeKey(res.code, keyB64);\n\n      navigate(`/session/${res.code}#k=${keyB64}`);\n    } catch (e) {\n      setError(e.message);\n      toast.error(e.message);\n    } finally {\n      setLoading(false);\n    }\n  }"
+        },
+        {
+          "file_path": "frontend/src/pages/SessionRoomPage.jsx",
+          "function_name": "nativeShare",
+          "start_line": 129,
+          "end_line": 135,
+          "language": "javascript",
+          "relevance_score": 0.9495,
+          "snippet": "async function nativeShare() {\n    try {\n      await navigator.share({ title: \"ephemeral.share\", text: \"Join my session\", url: shareLink() });\n    } catch {\n      // user cancelled the share sheet \u2014 no-op\n    }\n  }"
+        },
+        {
+          "file_path": "backend/internal/models/session.go",
+          "function_name": "CreateSessionRequest",
+          "start_line": 47,
+          "end_line": 50,
+          "language": "go",
+          "relevance_score": 0.9524,
+          "snippet": "CreateSessionRequest struct {\n\tType            SessionType `json:\"type\" binding:\"required,oneof=quick_transfer shared_workspace\"`\n\tMaxParticipants int         `json:\"max_participants\"`\n}"
+        },
+        {
+          "file_path": "backend/internal/redisclient/store.go",
+          "function_name": "Store",
+          "start_line": 17,
+          "end_line": 20,
+          "language": "go",
+          "relevance_score": 0.9733,
+          "snippet": "Store struct {\n\trdb *redis.Client\n\tttl time.Duration\n}"
+        }
+      ],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-go-02",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "What background process removes expired sessions and their files?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/handlers/cleanup.go",
+      "ground_truth_function": "PeriodicSweep",
+      "answer": "Error processing this question: Already borrowed",
+      "confidence": 0.0,
+      "detected_query_type": "unknown",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": true
+    },
+    {
+      "id": "es-go-03",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "How does the backend prevent a single client from sending too many requests?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/middleware/ratelimit.go",
+      "ground_truth_function": "RateLimit",
+      "answer": "The provided excerpts do not show any mechanism for limiting how many requests a single client can send; none of the shown structs or functions implement rate\u2011limiting or request\u2011throttling logic (e.g., the Hub struct only tracks clients without limits) [backend/internal/ws/hub.go:Hub:16-22].",
+      "confidence": 0.968,
+      "detected_query_type": "summarization",
+      "sources": [
+        {
+          "file_path": "backend/internal/analytics/store.go",
+          "function_name": "Store",
+          "start_line": 22,
+          "end_line": 24,
+          "language": "go",
+          "relevance_score": 0.968,
+          "snippet": "Store struct {\n\tpool *pgxpool.Pool\n}"
+        },
+        {
+          "file_path": "backend/internal/ws/hub.go",
+          "function_name": "Hub",
+          "start_line": 16,
+          "end_line": 22,
+          "language": "go",
+          "relevance_score": 0.9519,
+          "snippet": "Hub struct {\n\tcode    string\n\tstore   *redisclient.Store\n\tclients map[*websocket.Conn]bool\n\tmu      sync.Mutex\n\tcancel  context.CancelFunc\n}"
+        },
+        {
+          "file_path": "backend/internal/analytics/store.go",
+          "function_name": "Store.run",
+          "start_line": 61,
+          "end_line": 69,
+          "language": "go",
+          "relevance_score": 0.9443,
+          "snippet": "func (s *Store) run(name string, fn func(ctx context.Context) error) {\n\tgo func() {\n\t\tctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)\n\t\tdefer cancel()\n\t\tif err := fn(ctx); err != nil {\n\t\t\tlog.Printf(\"analytics: %s failed: %v\", name, err)\n\t\t}\n\t}()\n}"
+        },
+        {
+          "file_path": "backend/internal/models/session.go",
+          "function_name": "UploadURLRequest",
+          "start_line": 66,
+          "end_line": 70,
+          "language": "go",
+          "relevance_score": 0.9488,
+          "snippet": "UploadURLRequest struct {\n\tFilename    string `json:\"filename\" binding:\"required\"`\n\tContentType string `json:\"content_type\" binding:\"required\"`\n\tSizeBytes   int64  `json:\"size_bytes\" binding:\"required,min=1\"`\n}"
+        },
+        {
+          "file_path": "backend/internal/storage/s3.go",
+          "function_name": "Client",
+          "start_line": 15,
+          "end_line": 19,
+          "language": "go",
+          "relevance_score": 0.964,
+          "snippet": "Client struct {\n\ts3      *s3.Client // internal endpoint: used for server-side calls (list/delete)\n\tpresign *s3.PresignClient // public endpoint: URLs handed to the browser\n\tbucket  string\n}"
+        }
+      ],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-go-04",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "How are live WebSocket connections for a session managed and broadcast to?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/ws/hub.go",
+      "ground_truth_function": "broadcast",
+      "answer": "Live WebSocket connections are established through a WebSocket handler created by calling NewWebSocketHandler with the Redis store and allowed origins, and the handler\u2019s HandleConnection method is bound to the GET route \"/ws/sessions/:code\" in the router ([backend/internal/handlers/router.go:NewRouter:14-46]). The provided excerpts only show the registration of this handler; they do not include the implementation details of how connections are tracked or how messages are broadcast to all clients in a session.",
+      "confidence": 1.0,
+      "detected_query_type": "relational",
+      "sources": [
+        {
+          "file_path": "backend/cmd/server/main.go",
+          "function_name": "main",
+          "start_line": 21,
+          "end_line": 81,
+          "language": "go",
+          "relevance_score": 0.8,
+          "snippet": "func main() {\n\tif err := godotenv.Load(); err != nil {\n\t\tlog.Println(\"no .env file found, relying on environment variables\")\n\t}\n\n\tcfg := config.Load()\n\tctx := context.Background()\n\n\t// GIN_MODE=release is the standard signal that this is a real deployment,\n\t// not a docker-compose/local-dev run \u2014 use it to refuse to boot with\n\t// leftover dev secrets or a localhost-only CORS/S3 setup.\n\tif gin.Mode() == gin.ReleaseMode {\n\t\tif err := cfg.CheckProductionSafety(); err != nil {\n\t\t\tlog.Fatal(err)\n\t\t}\n\t}\n\n\trdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})\n\tif err := rdb.Ping(ctx).Err(); err != nil {\n\t\tlog.Fatalf(\"redis connection failed: %v\", err)\n\t}\n\t// The cleanup worker (and therefore the entire TTL/expiry guarantee) is\n\t// driven entirely by Redis keyspace notifications, so verify the server\n\t// actually has them turned on rather than silently never cleaning up.\n\t// Some managed Redis tiers (notably serverless offerings) block CONFIG SET\n\t// for this and must have it enabled out-of-band before deploy.\n\tif err := verifyKeyspaceNotifications(ctx, rdb); err != nil {\n\t\tlog.Fatalf(\"redis keyspace notifications check failed: %v\", err)\n\t}\n\tstore := redisclient.New(cfg.RedisAddr, cfg.RedisPassword, cfg.SessionTTL)\n\n\ts3Client, err := storage.New(ctx, cfg.S3Endpoint, cfg.S3PublicEndpoint, cfg.S3Region, cfg.S3AccessKey, cfg.S3SecretKey, cfg.S3Bucket)\n\tif err != nil {\n\t\tlog.Fatalf(\"s3 client init failed: %v\", err)\n\t}\n\n\t// Traffic analytics (session counts, active/inactive, text/file share\n\t// counts) live in Postgres, separate from Redis' live session state.\n\t// Non-fatal if unavailable: the product still works end-to-end on Redis\n\t// alone, it just temporarily loses traffic tracking.\n\tvar statsStore *analytics.Store\n\tstatsStore, err = analytics.New(ctx, cfg.PostgresDSN)\n\tif err != nil {\n\t\tlog.Printf(\"analytics: postgres unavailable, traffic tracking disabled: %v\", err)\n\t\tstatsStore = nil\n\t} else {\n\t\tdefer statsStore.Close()\n\t}\n\n\t// Background cleanup: reacts to Redis key-expiry events for guaranteed\n\t// teardown of S3 objects and WebSocket connections when a session's TTL hits zero.\n\tcleanupWorker := handlers.NewCleanupWorker(rdb, s3Client, statsStore)\n\tgo cleanupWorker.Run(ctx)\n\tgo cleanupWorker.PeriodicSweep(ctx, time.Minute)\n\n\trouter := handlers.NewRouter(store, s3Client, cfg, statsStore)\n\tlog.Printf(\"ephemeral-share backend listening on :%s\", cfg.Port)\n\tif err := router.Run(\":\" + cfg.Port); err != nil {\n\t\tlog.Fatalf(\"server failed: %v\", err)\n\t}\n}"
+        },
+        {
+          "file_path": "backend/internal/handlers/router.go",
+          "function_name": "NewRouter",
+          "start_line": 14,
+          "end_line": 46,
+          "language": "go",
+          "relevance_score": 1.0,
+          "snippet": "func NewRouter(store *redisclient.Store, s3 *storage.Client, cfg *config.Config, stats *analytics.Store) *gin.Engine {\n\tr := gin.Default()\n\n\tr.Use(cors.New(cors.Config{\n\t\tAllowOrigins:     cfg.AllowedOrigins,\n\t\tAllowMethods:     []string{\"GET\", \"POST\", \"DELETE\", \"OPTIONS\"},\n\t\tAllowHeaders:     []string{\"Origin\", \"Content-Type\", \"Accept\"},\n\t\tAllowCredentials: true,\n\t}))\n\n\tr.GET(\"/healthz\", func(c *gin.Context) { c.JSON(200, gin.H{\"status\": \"ok\"}) })\n\n\tsessionH := NewSessionHandler(store, s3, cfg, stats)\n\tcontentH := NewContentHandler(store, s3, cfg, stats)\n\twsH := NewWebSocketHandler(store, cfg.AllowedOrigins)\n\n\tapi := r.Group(\"/api/v1\")\n\t{\n\t\tapi.POST(\"/sessions\", middleware.RateLimit(cfg.RateLimitPerMin), sessionH.CreateSession)\n\t\tapi.GET(\"/sessions/:code\", middleware.RateLimit(cfg.RateLimitPerMin*2), sessionH.GetSession)\n\t\tapi.POST(\"/sessions/:code/join\", middleware.RateLimit(cfg.RateLimitPerMin*2), sessionH.JoinSession)\n\t\tapi.DELETE(\"/sessions/:code\", sessionH.DeleteSession)\n\n\t\tapi.POST(\"/sessions/:code/content/upload-url\", contentH.RequestUploadURL)\n\t\tapi.POST(\"/sessions/:code/content/text\", contentH.AddTextContent)\n\t\tapi.GET(\"/sessions/:code/content\", contentH.ListContent)\n\t\tapi.GET(\"/sessions/:code/content/:id/download\", contentH.DownloadContent)\n\t}\n\n\tr.GET(\"/ws/sessions/:code\", wsH.HandleConnection)\n\n\treturn r\n}"
+        }
+      ],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-js-01",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "Where is the end-to-end encryption key generated on the client?",
+      "query_type": "lookup",
+      "ground_truth_file": "frontend/src/lib/crypto.js",
+      "ground_truth_function": "generateSessionKey",
+      "answer": "The client creates the end\u2011to\u2011end encryption key in the handleCreate function of\u202ffrontend/src/pages/CreateSessionPage.jsx, which calls generateSessionKey. That helper (frontend/src/lib/crypto.js) uses the Web Crypto API (crypto.subtle.generateKey) to produce the key entirely in the browser [frontend/src/pages/CreateSessionPage.jsx:handleCreate:42-66] [frontend/src/lib/crypto.js:generateSessionKey:8-10].",
+      "confidence": 0.9567,
+      "detected_query_type": "lookup",
+      "sources": [
+        {
+          "file_path": "frontend/src/pages/CreateSessionPage.jsx",
+          "function_name": "handleCreate",
+          "start_line": 42,
+          "end_line": 66,
+          "language": "javascript",
+          "relevance_score": 0.9361,
+          "snippet": "async function handleCreate() {\n    setLoading(true);\n    setError(null);\n    try {\n      const res = await api.createSession(type, type === \"shared_workspace\" ? maxParticipants : undefined);\n      // owner_token itself lives in an HttpOnly cookie (unreadable from JS, by\n      // design) and authorizes DELETE /sessions/:code server-side; this flag\n      // just lets the room UI know to show the \"end session\" control.\n      sessionStorage.setItem(`owner:${res.code}`, \"1\");\n\n      // Generate the E2E encryption key entirely client-side. It is exported\n      // into the URL fragment (never sent in a request) so SessionRoomPage\n      // can pick it up on load and the server never learns it.\n      const key = await generateSessionKey();\n      const keyB64 = await exportKey(key);\n      storeKey(res.code, keyB64);\n\n      navigate(`/session/${res.code}#k=${keyB64}`);\n    } catch (e) {\n      setError(e.message);\n      toast.error(e.message);\n    } finally {\n      setLoading(false);\n    }\n  }"
+        },
+        {
+          "file_path": "frontend/src/lib/crypto.js",
+          "function_name": "generateSessionKey",
+          "start_line": 8,
+          "end_line": 10,
+          "language": "javascript",
+          "relevance_score": 0.9411,
+          "snippet": "async function generateSessionKey() {\n  return crypto.subtle.generateKey(AES_ALGO, true, [\"encrypt\", \"decrypt\"]);\n}"
+        },
+        {
+          "file_path": "backend/internal/storage/s3.go",
+          "function_name": "Client",
+          "start_line": 15,
+          "end_line": 19,
+          "language": "go",
+          "relevance_score": 0.9512,
+          "snippet": "Client struct {\n\ts3      *s3.Client // internal endpoint: used for server-side calls (list/delete)\n\tpresign *s3.PresignClient // public endpoint: URLs handed to the browser\n\tbucket  string\n}"
+        },
+        {
+          "file_path": "backend/internal/redisclient/store.go",
+          "function_name": "Store",
+          "start_line": 17,
+          "end_line": 20,
+          "language": "go",
+          "relevance_score": 0.9567,
+          "snippet": "Store struct {\n\trdb *redis.Client\n\tttl time.Duration\n}"
+        },
+        {
+          "file_path": "backend/internal/handlers/cleanup.go",
+          "function_name": "CleanupWorker",
+          "start_line": 20,
+          "end_line": 24,
+          "language": "go",
+          "relevance_score": 0.9491,
+          "snippet": "CleanupWorker struct {\n\trdb   *redis.Client\n\ts3    *storage.Client\n\tstats *analytics.Store // nil-safe: analytics is best-effort, never required\n}"
+        }
+      ],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": true,
+      "refused": false
+    },
+    {
+      "id": "es-js-02",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "How is the shareable session link constructed with the encryption key embedded?",
+      "query_type": "lookup",
+      "ground_truth_file": "frontend/src/pages/SessionRoomPage.jsx",
+      "ground_truth_function": "shareLink",
+      "answer": "When a session is created, the client generates an E2E encryption key, exports it as a base\u201164 string, and then navigates to a URL that includes the session code followed by a fragment containing the key (e.g.\u202f`/session/<code>#k=<keyB64>`). This is done in\u202fhandleCreate, which builds the URL with `navigate(`/session/${res.code}#k=${keyB64}`)` after storing the key\u202f[frontend/src/pages/CreateSessionPage.jsx:handleCreate:42-66]. Later, when sharing the link, the SessionRoomPage\u2019s\u202fshareLink function reads the stored key (or a manually entered one) and constructs the full shareable URL in the same format, adding the `#k=` fragment only if a key is available\u202f[frontend/src/pages/SessionRoomPage.jsx:shareLink:106-109].",
+      "confidence": 0.9522,
+      "detected_query_type": "summarization",
+      "sources": [
+        {
+          "file_path": "frontend/src/pages/CreateSessionPage.jsx",
+          "function_name": "handleCreate",
+          "start_line": 42,
+          "end_line": 66,
+          "language": "javascript",
+          "relevance_score": 0.9424,
+          "snippet": "async function handleCreate() {\n    setLoading(true);\n    setError(null);\n    try {\n      const res = await api.createSession(type, type === \"shared_workspace\" ? maxParticipants : undefined);\n      // owner_token itself lives in an HttpOnly cookie (unreadable from JS, by\n      // design) and authorizes DELETE /sessions/:code server-side; this flag\n      // just lets the room UI know to show the \"end session\" control.\n      sessionStorage.setItem(`owner:${res.code}`, \"1\");\n\n      // Generate the E2E encryption key entirely client-side. It is exported\n      // into the URL fragment (never sent in a request) so SessionRoomPage\n      // can pick it up on load and the server never learns it.\n      const key = await generateSessionKey();\n      const keyB64 = await exportKey(key);\n      storeKey(res.code, keyB64);\n\n      navigate(`/session/${res.code}#k=${keyB64}`);\n    } catch (e) {\n      setError(e.message);\n      toast.error(e.message);\n    } finally {\n      setLoading(false);\n    }\n  }"
+        },
+        {
+          "file_path": "frontend/src/pages/SessionRoomPage.jsx",
+          "function_name": "shareLink",
+          "start_line": 106,
+          "end_line": 109,
+          "language": "javascript",
+          "relevance_score": 0.9402,
+          "snippet": "function shareLink() {\n    const key = manualKeyInput || loadKey(code);\n    return key ? `${window.location.origin}/session/${code}#k=${key}` : `${window.location.origin}/session/${code}`;\n  }"
+        },
+        {
+          "file_path": "frontend/src/pages/SessionRoomPage.jsx",
+          "function_name": "nativeShare",
+          "start_line": 129,
+          "end_line": 135,
+          "language": "javascript",
+          "relevance_score": 0.9464,
+          "snippet": "async function nativeShare() {\n    try {\n      await navigator.share({ title: \"ephemeral.share\", text: \"Join my session\", url: shareLink() });\n    } catch {\n      // user cancelled the share sheet \u2014 no-op\n    }\n  }"
+        },
+        {
+          "file_path": "backend/internal/models/session.go",
+          "function_name": "CreateSessionRequest",
+          "start_line": 47,
+          "end_line": 50,
+          "language": "go",
+          "relevance_score": 0.9522,
+          "snippet": "CreateSessionRequest struct {\n\tType            SessionType `json:\"type\" binding:\"required,oneof=quick_transfer shared_workspace\"`\n\tMaxParticipants int         `json:\"max_participants\"`\n}"
+        },
+        {
+          "file_path": "frontend/src/components/UploadWidget.jsx",
+          "function_name": "handleAddText",
+          "start_line": 35,
+          "end_line": 54,
+          "language": "javascript",
+          "relevance_score": 0.9485,
+          "snippet": "async function handleAddText(e) {\n    e.preventDefault();\n    if (!text.trim() || !encKey) return;\n    try {\n      // Multi-line content (code, logs, etc.) is shared as a \"snippet\" so it\n      // renders monospace/preformatted; a single line stays a plain \"note\".\n      // Only outer blank lines are trimmed \u2014 internal indentation is kept.\n      // This categorization happens before encryption, so the server can\n      // still tell notes from snippets for UI purposes without seeing the\n      // actual text.\n      const trimmed = text.replace(/^\\n+|\\n+$/g, \"\");\n      const contentType = trimmed.includes(\"\\n\") ? \"snippet\" : \"note\";\n      const cipherB64 = await encryptText(encKey, trimmed);\n      await api.addText(code, contentType, cipherB64);\n      setText(\"\");\n      onUploaded?.();\n    } catch (e) {\n      toast.error(e.message || \"Failed to add text\");\n    }\n  }"
+        }
+      ],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": true,
+      "refused": false
+    },
+    {
+      "id": "es-js-03",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "What happens on the client when a user submits the create-session form?",
+      "query_type": "lookup",
+      "ground_truth_file": "frontend/src/pages/CreateSessionPage.jsx",
+      "ground_truth_function": "handleCreate",
+      "answer": "When the create\u2011session form is submitted, the\u202fhandleCreate\u202ffunction runs. It first sets a loading flag and clears any previous error, then calls\u202fapi.createSession\u202fwith the selected session type (and\u202fmaxParticipants\u202fif the type is\u202f\"shared_workspace\"). On a successful response it writes an owner flag into\u202fsessionStorage\u202fso the UI can show an \u201cend session\u201d control, generates an end\u2011to\u2011end encryption key entirely on the client, exports that key to a base64 string, stores the key with\u202fstoreKey, and finally navigates the browser to the new session URL that includes the session code and the key in the URL fragment. If the API call throws, the error message is saved and shown via a toast. In all cases the loading flag is cleared at the end. [frontend/src/pages/CreateSessionPage.jsx:handleCreate:42-66]",
+      "confidence": 0.972,
+      "detected_query_type": "summarization",
+      "sources": [
+        {
+          "file_path": "frontend/src/pages/CreateSessionPage.jsx",
+          "function_name": "handleCreate",
+          "start_line": 42,
+          "end_line": 66,
+          "language": "javascript",
+          "relevance_score": 0.9449,
+          "snippet": "async function handleCreate() {\n    setLoading(true);\n    setError(null);\n    try {\n      const res = await api.createSession(type, type === \"shared_workspace\" ? maxParticipants : undefined);\n      // owner_token itself lives in an HttpOnly cookie (unreadable from JS, by\n      // design) and authorizes DELETE /sessions/:code server-side; this flag\n      // just lets the room UI know to show the \"end session\" control.\n      sessionStorage.setItem(`owner:${res.code}`, \"1\");\n\n      // Generate the E2E encryption key entirely client-side. It is exported\n      // into the URL fragment (never sent in a request) so SessionRoomPage\n      // can pick it up on load and the server never learns it.\n      const key = await generateSessionKey();\n      const keyB64 = await exportKey(key);\n      storeKey(res.code, keyB64);\n\n      navigate(`/session/${res.code}#k=${keyB64}`);\n    } catch (e) {\n      setError(e.message);\n      toast.error(e.message);\n    } finally {\n      setLoading(false);\n    }\n  }"
+        },
+        {
+          "file_path": "backend/internal/models/session.go",
+          "function_name": "CreateSessionRequest",
+          "start_line": 47,
+          "end_line": 50,
+          "language": "go",
+          "relevance_score": 0.9508,
+          "snippet": "CreateSessionRequest struct {\n\tType            SessionType `json:\"type\" binding:\"required,oneof=quick_transfer shared_workspace\"`\n\tMaxParticipants int         `json:\"max_participants\"`\n}"
+        },
+        {
+          "file_path": "backend/internal/redisclient/store.go",
+          "function_name": "Store",
+          "start_line": 17,
+          "end_line": 20,
+          "language": "go",
+          "relevance_score": 0.972,
+          "snippet": "Store struct {\n\trdb *redis.Client\n\tttl time.Duration\n}"
+        },
+        {
+          "file_path": "backend/internal/ws/hub.go",
+          "function_name": "Hub",
+          "start_line": 16,
+          "end_line": 22,
+          "language": "go",
+          "relevance_score": 0.954,
+          "snippet": "Hub struct {\n\tcode    string\n\tstore   *redisclient.Store\n\tclients map[*websocket.Conn]bool\n\tmu      sync.Mutex\n\tcancel  context.CancelFunc\n}"
+        },
+        {
+          "file_path": "frontend/src/pages/SessionRoomPage.jsx",
+          "function_name": "nativeShare",
+          "start_line": 129,
+          "end_line": 135,
+          "language": "javascript",
+          "relevance_score": 0.9499,
+          "snippet": "async function nativeShare() {\n    try {\n      await navigator.share({ title: \"ephemeral.share\", text: \"Join my session\", url: shareLink() });\n    } catch {\n      // user cancelled the share sheet \u2014 no-op\n    }\n  }"
+        }
+      ],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": true,
+      "refused": false
+    },
+    {
+      "id": "es-relational-01",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "What calls Store.CreateSession, and what would break if its signature changed?",
+      "query_type": "relational",
+      "ground_truth_file": "backend/internal/handlers/session.go",
+      "ground_truth_function": "CreateSession",
+      "answer": "I couldn't find any relevant code for this query. This may mean the repository hasn't been ingested yet, the function you named doesn't exist in this codebase, or your filters are too restrictive.",
+      "confidence": 0.0,
+      "detected_query_type": "relational",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": true
+    }
+  ]
+}

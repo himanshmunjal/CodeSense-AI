@@ -1,0 +1,54 @@
+{
+  "_meta": {
+    "description": "Small hand-written query/ground-truth set for himanshmunjal/LinkPlus (React frontend), used to measure JS/React retrieval quality. Several ground-truth entries deliberately target `const Foo = () => {}` / `export const foo = (...) => ...` declarations, since the entity extractor previously produced ZERO entities for that pattern (fixed this session) — this dataset verifies the fix actually improves retrieval, not just parsing.",
+    "repos": ["https://github.com/himanshmunjal/LinkPlus"],
+    "grounding_note": "File paths and function names fetched live via `gh api repos/himanshmunjal/LinkPlus/contents/...` at dataset-authoring time (2026-09-08)."
+  },
+  "queries": [
+    {
+      "id": "lp-01",
+      "repo_url": "https://github.com/himanshmunjal/LinkPlus",
+      "query": "How does the frontend create a new shortened URL via the API?",
+      "query_type": "lookup",
+      "ground_truth_file": "Linkplus/src/api/api.js",
+      "ground_truth_function": "createURL",
+      "ground_truth_answer_summary": "createURL in src/api/api.js is an arrow-function API wrapper that POSTs to /api/v4/url with the original url and optional expiresIn, authenticated via the stored access token."
+    },
+    {
+      "id": "lp-02",
+      "repo_url": "https://github.com/himanshmunjal/LinkPlus",
+      "query": "Where is authentication state (user, token) provided to the rest of the app?",
+      "query_type": "lookup",
+      "ground_truth_file": "Linkplus/src/context/AuthContext.jsx",
+      "ground_truth_function": "AuthProvider",
+      "ground_truth_answer_summary": "AuthProvider in src/context/AuthContext.jsx wraps the app in a React context providing token, user, saveAuth, logout and isLoggedIn, persisting the token and user to localStorage and verifying the session via getMe on mount."
+    },
+    {
+      "id": "lp-03",
+      "repo_url": "https://github.com/himanshmunjal/LinkPlus",
+      "query": "What is the shared Button component used across the app and what variants does it support?",
+      "query_type": "lookup",
+      "ground_truth_file": "Linkplus/src/components/ui.jsx",
+      "ground_truth_function": "Button",
+      "ground_truth_answer_summary": "Button in src/components/ui.jsx is a forwardRef-wrapped design-system primitive supporting primary/outline/ghost/danger variants and sm/md/lg sizes via a shared className lookup table."
+    },
+    {
+      "id": "lp-04",
+      "repo_url": "https://github.com/himanshmunjal/LinkPlus",
+      "query": "How does a route get protected so only logged-in users can access it?",
+      "query_type": "lookup",
+      "ground_truth_file": "Linkplus/src/pages/ProtectedRoute.jsx",
+      "ground_truth_function": "ProtectedRoute",
+      "ground_truth_answer_summary": "ProtectedRoute in src/pages/ProtectedRoute.jsx checks isLoggedIn from useAuth and redirects to /login if false, otherwise renders the nested route via Outlet."
+    },
+    {
+      "id": "lp-05",
+      "repo_url": "https://github.com/himanshmunjal/LinkPlus",
+      "query": "How is a short-link expiry countdown computed on the client?",
+      "query_type": "lookup",
+      "ground_truth_file": "Linkplus/src/lib/expiry.js",
+      "ground_truth_function": "formatTimeLeft",
+      "ground_truth_answer_summary": "formatTimeLeft in src/lib/expiry.js computes the difference between expiresAt and now, returning a short human-readable string like '5h 42m left' or 'Expired'."
+    }
+  ]
+}

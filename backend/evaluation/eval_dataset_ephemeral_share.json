@@ -1,0 +1,84 @@
+{
+  "_meta": {
+    "description": "Small hand-written query/ground-truth set for himanshmunjal/Ephemeral-share, built specifically to measure retrieval quality across a POLYGLOT repo (Go backend + JS frontend) after Go ingestion support was added. Unlike eval_dataset.json (single-language repos), every query here has its true answer in exactly one language, so Precision@5 directly measures whether the retriever/reranker favors one language over the other for reasons unrelated to relevance.",
+    "repos": [
+      "https://github.com/himanshmunjal/Ephemeral-share"
+    ],
+    "grounding_note": "File paths and function names were fetched live via `gh api repos/himanshmunjal/Ephemeral-share/contents/...` against the default branch at dataset-authoring time (2026-09-08). Re-verify before reuse if the upstream repo has since changed.",
+    "purpose": "Baseline this dataset against the CURRENT embedder (microsoft/codebert-base) + reranker (cross-encoder/ms-marco-MiniLM-L-6-v2) to get a real Precision@5 number, then re-run after any candidate model swap + full re-index to measure actual uplift instead of one-off similarity spot checks."
+  },
+  "queries": [
+    {
+      "id": "es-go-01",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "Where is the shared session data stored temporarily and how does it expire?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/redisclient/store.go",
+      "ground_truth_function": "CreateSession",
+      "ground_truth_answer_summary": "Store.CreateSession in backend/internal/redisclient/store.go marshals the session into a sessionRecord and writes it to Redis with an absolute TTL (s.ttl) via a TxPipeline Set/Expire, so the record is automatically purged by Redis once the session's time limit is reached."
+    },
+    {
+      "id": "es-go-02",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "What background process removes expired sessions and their files?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/handlers/cleanup.go",
+      "ground_truth_function": "PeriodicSweep",
+      "ground_truth_answer_summary": "CleanupWorker.PeriodicSweep in backend/internal/handlers/cleanup.go runs on an interval, calling cleanupSession for expired sessions to purge Redis keys and delete associated S3 objects and analytics state."
+    },
+    {
+      "id": "es-go-03",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "How does the backend prevent a single client from sending too many requests?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/middleware/ratelimit.go",
+      "ground_truth_function": "RateLimit",
+      "ground_truth_answer_summary": "RateLimit in backend/internal/middleware/ratelimit.go returns a gin.HandlerFunc that tracks a per-client rate.Limiter (keyed by visitor) and rejects requests once the configured per-minute quota is exceeded."
+    },
+    {
+      "id": "es-go-04",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "How are live WebSocket connections for a session managed and broadcast to?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/ws/hub.go",
+      "ground_truth_function": "broadcast",
+      "ground_truth_answer_summary": "Hub.broadcast in backend/internal/ws/hub.go sends a payload to every registered connection for a session's hub, with Register/Unregister managing which connections are currently subscribed."
+    },
+    {
+      "id": "es-js-01",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "Where is the end-to-end encryption key generated on the client?",
+      "query_type": "lookup",
+      "ground_truth_file": "frontend/src/lib/crypto.js",
+      "ground_truth_function": "generateSessionKey",
+      "ground_truth_answer_summary": "generateSessionKey in frontend/src/lib/crypto.js uses the Web Crypto API (crypto.subtle.generateKey) to create a new AES key entirely in the browser, so the key never touches the server unencrypted."
+    },
+    {
+      "id": "es-js-02",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "How is the shareable session link constructed with the encryption key embedded?",
+      "query_type": "lookup",
+      "ground_truth_file": "frontend/src/pages/SessionRoomPage.jsx",
+      "ground_truth_function": "shareLink",
+      "ground_truth_answer_summary": "shareLink in frontend/src/pages/SessionRoomPage.jsx builds the session URL and appends the base64 encryption key as a `#k=...` URL fragment, which browsers never send to the server."
+    },
+    {
+      "id": "es-js-03",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "What happens on the client when a user submits the create-session form?",
+      "query_type": "lookup",
+      "ground_truth_file": "frontend/src/pages/CreateSessionPage.jsx",
+      "ground_truth_function": "handleCreate",
+      "ground_truth_answer_summary": "handleCreate in frontend/src/pages/CreateSessionPage.jsx generates the session key, calls the create-session API, stores the key locally via storeKey, and marks the current user as the session owner."
+    },
+    {
+      "id": "es-relational-01",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "What calls Store.CreateSession, and what would break if its signature changed?",
+      "query_type": "relational",
+      "ground_truth_file": "backend/internal/handlers/session.go",
+      "ground_truth_function": "CreateSession",
+      "ground_truth_answer_summary": "SessionHandler.CreateSession in backend/internal/handlers/session.go is the HTTP handler that calls Store.CreateSession after validating and constructing the session model — changing Store.CreateSession's signature breaks this call site directly."
+    }
+  ]
+}

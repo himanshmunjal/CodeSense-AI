@@ -1,0 +1,165 @@
+{
+  "generated_at": "20260912T093454Z",
+  "base_url": "http://localhost:8000",
+  "summary": {
+    "overall": {
+      "n": 8,
+      "precision_at_5": 0.0,
+      "avg_confidence": 0.7182,
+      "refusal_rate": 0.0,
+      "error_rate": 0.0
+    },
+    "by_query_type": {
+      "lookup": {
+        "n": 7,
+        "precision_at_5": 0.0,
+        "avg_confidence": 0.7154,
+        "refusal_rate": 0.0,
+        "error_rate": 0.0
+      },
+      "relational": {
+        "n": 1,
+        "precision_at_5": 0.0,
+        "avg_confidence": 0.7375,
+        "refusal_rate": 0.0,
+        "error_rate": 0.0
+      }
+    },
+    "ragas": {
+      "faithfulness": null,
+      "answer_relevancy": null,
+      "ragas_error": "No non-refused, non-error answers available to score."
+    },
+    "confidence_threshold": 0.65
+  },
+  "results": [
+    {
+      "id": "es-go-01",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "Where is the shared session data stored temporarily and how does it expire?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/redisclient/store.go",
+      "ground_truth_function": "CreateSession",
+      "answer": "An error occurred while generating the response. Please try again.",
+      "confidence": 0.7391,
+      "detected_query_type": "lookup",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-go-02",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "What background process removes expired sessions and their files?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/handlers/cleanup.go",
+      "ground_truth_function": "PeriodicSweep",
+      "answer": "An error occurred while generating the response. Please try again.",
+      "confidence": 0.6605,
+      "detected_query_type": "lookup",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-go-03",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "How does the backend prevent a single client from sending too many requests?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/middleware/ratelimit.go",
+      "ground_truth_function": "RateLimit",
+      "answer": "An error occurred while generating the response. Please try again.",
+      "confidence": 0.6724,
+      "detected_query_type": "lookup",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-go-04",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "How are live WebSocket connections for a session managed and broadcast to?",
+      "query_type": "lookup",
+      "ground_truth_file": "backend/internal/ws/hub.go",
+      "ground_truth_function": "broadcast",
+      "answer": "An error occurred while generating the response. Please try again.",
+      "confidence": 0.719,
+      "detected_query_type": "lookup",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-js-01",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "Where is the end-to-end encryption key generated on the client?",
+      "query_type": "lookup",
+      "ground_truth_file": "frontend/src/lib/crypto.js",
+      "ground_truth_function": "generateSessionKey",
+      "answer": "An error occurred while generating the response. Please try again.",
+      "confidence": 0.7535,
+      "detected_query_type": "lookup",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-js-02",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "How is the shareable session link constructed with the encryption key embedded?",
+      "query_type": "lookup",
+      "ground_truth_file": "frontend/src/pages/SessionRoomPage.jsx",
+      "ground_truth_function": "shareLink",
+      "answer": "An error occurred while generating the response. Please try again.",
+      "confidence": 0.7636,
+      "detected_query_type": "lookup",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-js-03",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "What happens on the client when a user submits the create-session form?",
+      "query_type": "lookup",
+      "ground_truth_file": "frontend/src/pages/CreateSessionPage.jsx",
+      "ground_truth_function": "handleCreate",
+      "answer": "An error occurred while generating the response. Please try again.",
+      "confidence": 0.6999,
+      "detected_query_type": "lookup",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    },
+    {
+      "id": "es-relational-01",
+      "repo_url": "https://github.com/himanshmunjal/Ephemeral-share",
+      "query": "What calls Store.CreateSession, and what would break if its signature changed?",
+      "query_type": "relational",
+      "ground_truth_file": "backend/internal/handlers/session.go",
+      "ground_truth_function": "CreateSession",
+      "answer": "An error occurred while generating the response. Please try again.",
+      "confidence": 0.7375,
+      "detected_query_type": "lookup",
+      "sources": [],
+      "latency_ms": 0.0,
+      "error": null,
+      "hit_at_5": false,
+      "refused": false
+    }
+  ]
+}
