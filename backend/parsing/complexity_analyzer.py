@@ -100,7 +100,7 @@ class ComplexityResult:
     rating : ComplexityRating
         Categorical rating derived from cyclomatic_complexity.
     language : str
-        Source language: "python" | "javascript" | "java" | "typescript".
+        Source language: "python" | "javascript" | "java" | "typescript" | "go".
     """
     function_name: str
     file_path: str
@@ -155,7 +155,7 @@ DECISION_POINT_NODE_TYPES: dict[str, dict[str, int]] = {
         "else_clause": 0,           # else does not add a new path
         "for_statement": 1,
         "while_statement": 1,
-        "try_statement": 1,
+        "try_statement": 0,       # each except/catch adds the path, not the try
         "except_clause": 1,
         "with_statement": 0,        # context managers don't branch
         "assert_statement": 1,
@@ -171,9 +171,9 @@ DECISION_POINT_NODE_TYPES: dict[str, dict[str, int]] = {
         "for_in_statement": 1,
         "while_statement": 1,
         "do_statement": 1,
-        "switch_statement": 1,
+        "switch_statement": 0,           # each case adds the path, not the switch
         "case": 1,
-        "try_statement": 1,
+        "try_statement": 0,       # each except/catch adds the path, not the try
         "catch_clause": 1,
         "logical_expression": 1,    # && / ||
         "ternary_expression": 1,
@@ -187,9 +187,9 @@ DECISION_POINT_NODE_TYPES: dict[str, dict[str, int]] = {
         "for_in_statement": 1,
         "while_statement": 1,
         "do_statement": 1,
-        "switch_statement": 1,
+        "switch_statement": 0,           # each case adds the path, not the switch
         "case": 1,
-        "try_statement": 1,
+        "try_statement": 0,       # each except/catch adds the path, not the try
         "catch_clause": 1,
         "logical_expression": 1,
         "ternary_expression": 1,
@@ -202,12 +202,26 @@ DECISION_POINT_NODE_TYPES: dict[str, dict[str, int]] = {
         "enhanced_for_statement": 1,
         "while_statement": 1,
         "do_statement": 1,
-        "switch_expression": 1,
+        "switch_expression": 0,          # each case adds the path, not the switch
         "switch_label": 1,
-        "try_statement": 1,
+        "try_statement": 0,       # each except/catch adds the path, not the try
         "catch_clause": 1,
         "binary_expression": 1,     # && / ||
         "ternary_expression": 1,
+    },
+    "go": {
+        "if_statement": 1,
+        "for_statement": 1,         # covers classic, condition-only, and range for
+        "expression_switch_statement": 0, # each case adds the path, not the switch
+        "expression_case": 1,
+        "type_switch_statement": 0,      # each case adds the path, not the switch
+        "type_case": 1,
+        "default_case": 0,          # default does not add a new path
+        "select_statement": 0,           # each case adds the path, not the switch
+        "communication_case": 1,
+        "binary_expression": 1,     # && / || (Go has one generic binary_expression
+                                     # node for all operators, same overcounting
+                                     # tradeoff already accepted for Java above)
     },
 }
 
@@ -231,7 +245,7 @@ class ComplexityAnalyzer:
     ----------
     language : str
         Source language for this analyzer instance.
-        One of: "python", "javascript", "typescript", "java".
+        One of: "python", "javascript", "typescript", "java", "go".
     """
 
     def __init__(self, language: str) -> None:
@@ -518,6 +532,7 @@ class ComplexityAnalyzer:
             "javascript": ["//", "/*", "*"],
             "typescript": ["//", "/*", "*"],
             "java": ["//", "/*", "*"],
+            "go": ["//", "/*", "*"],
         }
         return prefixes.get(self.language, ["#", "//"])
 
