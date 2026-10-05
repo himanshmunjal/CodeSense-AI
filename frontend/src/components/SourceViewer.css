@@ -1,0 +1,94 @@
+.sourceviewer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+}
+
+.sourceviewer--empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 24px;
+}
+
+.sourceviewer__header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sourceviewer__path {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 6px;
+}
+
+.sourceviewer__subheader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.sourceviewer__fn {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.sourceviewer__impact-btn {
+  margin-top: 8px;
+  width: 100%;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.sourceviewer__impact-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.sourceviewer__code {
+  flex: 1;
+  overflow: auto;
+}
+
+.sourceviewer__code pre {
+  margin: 0;
+  padding: 8px 0;
+}
+
+.sourceviewer__line {
+  display: flex;
+  font-size: 12.5px;
+  line-height: 1.6;
+  padding: 0 10px;
+}
+
+.sourceviewer__line:hover {
+  background: var(--bg-panel-alt);
+}
+
+.sourceviewer__lineno {
+  color: var(--text-dim);
+  width: 3.2em;
+  flex-shrink: 0;
+  text-align: right;
+  margin-right: 12px;
+  user-select: none;
+}
+
+.sourceviewer__linetext {
+  white-space: pre;
+}

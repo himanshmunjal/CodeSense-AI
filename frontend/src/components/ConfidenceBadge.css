@@ -1,0 +1,50 @@
+.confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--mono);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.confidence-badge--small {
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
+.confidence-badge__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.confidence-badge--high {
+  color: var(--green);
+  background: rgba(62, 207, 94, 0.12);
+  border-color: rgba(62, 207, 94, 0.3);
+}
+.confidence-badge--high .confidence-badge__dot {
+  background: var(--green);
+}
+
+.confidence-badge--medium {
+  color: var(--yellow);
+  background: rgba(224, 185, 60, 0.12);
+  border-color: rgba(224, 185, 60, 0.3);
+}
+.confidence-badge--medium .confidence-badge__dot {
+  background: var(--yellow);
+}
+
+.confidence-badge--low {
+  color: var(--red);
+  background: rgba(239, 83, 80, 0.12);
+  border-color: rgba(239, 83, 80, 0.3);
+}
+.confidence-badge--low .confidence-badge__dot {
+  background: var(--red);
+}
