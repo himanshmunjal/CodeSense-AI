@@ -15,17 +15,42 @@ Semantic search alone (finding code by meaning) and structural search alone
 
 This file fuses both signals into a single ranked result list using a
 weighted combination of their scores. It is the central retrieval brain of
-CodeSense. Every user query ultimately passes through here (unless the query
-classifier routes it to a pure-graph traversal, which is handled separately
-in graph_retriever.py).
+CodeSense, and it is used specifically for ANALYTICAL queries (see
+api/routes/query.py's dispatch logic) — LOOKUP/SUMMARIZATION go through
+SemanticRetriever alone, and RELATIONAL goes through GraphRetriever alone,
+because those two query types ask a question the *other* signal cannot
+answer at all ("find code like X" has no graph meaning; "what calls X" has
+no vector-similarity meaning). ANALYTICAL queries ("find inconsistent error
+handling", "which functions are riskiest to touch") are exactly the case
+where blending "semantically relevant" with "structurally central" produces
+a better-ordered list than either signal alone.
 
 The design mirrors what high-quality production search systems do — BM25 +
 dense vector fusion in Elasticsearch, for example. We apply the same idea to
 code: structural centrality + semantic similarity = better retrieval.
 
+HOW THE STRUCTURAL SIGNAL IS COMPUTED
+─────────────────────────────────────────────────────────────────────────────
+GraphRetriever (retrieval/graph_retriever.py) has no generic "search by
+free-text query" method — it only supports targeted traversals from a
+*known* function name (get_callers, get_callees, get_impact, get_path,
+get_file_nodes). There is no way to ask it "which nodes are relevant to
+this natural-language query" the way SemanticRetriever can.
+
+So instead of running two independent searches and merging by chunk_id (the
+original — and unworkable — design of this file), we run semantic search
+first to get a candidate set, and then use the graph purely as a per-
+candidate *signal*: for each semantically-retrieved chunk, we ask "how many
+functions directly call this one?" via GraphRetriever.get_callers(...,
+max_depth=1). A function with many direct callers is structurally central —
+changing it or misunderstanding it has outsized impact — so it is boosted.
+A leaf function with zero callers gets structural_score=0.0 and is ranked
+on semantic similarity alone. This is the "structural centrality" the
+original docstring above referred to.
+
 POSITION IN PIPELINE
 ─────────────────────────────────────────────────────────────────────────────
-Query → query_classifier.py → [this file] → reranker.py → generator.py
+Query → query_classifier.py → [this file, ANALYTICAL only] → reranker.py → generator.py
 """
 
 import asyncio
@@ -35,8 +60,8 @@ from typing import Optional
 from loguru import logger
 
 # Local imports — each handles one half of the hybrid signal
-from retrieval.semantic_retriever import SemanticRetriever, SemanticResult
-from retrieval.graph_retriever import GraphRetriever, GraphResult
+from retrieval.semantic_retriever import SemanticRetriever, SemanticSearchResult
+from retrieval.graph_retriever import GraphRetriever
 from config import get_settings
 
 settings = get_settings()
@@ -121,23 +146,23 @@ class HybridResult:
 
 class HybridRetriever:
     """
-    Fuses semantic and structural retrieval into a single ranked result list.
+    Fuses semantic similarity with graph-derived structural centrality into
+    a single ranked result list.
 
     Architecture
     ────────────
-    1. Both retrieval paths run concurrently (asyncio.gather).
-    2. Results are merged into a shared dict keyed by chunk_id.
-       If a chunk appears in both, its scores are combined.
-       If it appears in only one, the missing score defaults to 0.0.
+    1. Run semantic search once to get a candidate set (SemanticRetriever).
+    2. For each candidate chunk, ask the graph "how many functions directly
+       call this one?" (GraphRetriever.get_callers(max_depth=1)). This is
+       the structural_score, normalized to [0, 1].
     3. Each chunk's final score is computed:
            hybrid_score = w_sem * semantic_score + w_str * structural_score
     4. The result list is sorted by hybrid_score descending.
     5. Low-confidence results (below settings.retrieval_confidence_threshold)
        are filtered out before returning.
 
-    The caller (query_classifier or the API route) decides how many results
-    to request. This class does not impose a top-K limit — that is the
-    re-ranker's job.
+    The caller (api/routes/query.py) decides how many results to request.
+    This class does not impose a top-K limit — that is the re-ranker's job.
     """
 
     def __init__(
@@ -250,43 +275,49 @@ class HybridRetriever:
             f"repo={repo_name} | top_k={top_k}"
         )
 
-        # ── Step 1: Run both retrievers concurrently ──────────────────────
-        # asyncio.gather fires both coroutines at the same time.
-        # Semantic search hits Qdrant over the network; graph traversal is
-        # in-memory but can be CPU-heavy for large graphs. Running them
-        # concurrently shaves ~30-50% off total retrieval latency.
-        semantic_results, structural_results = await asyncio.gather(
-            self.semantic_retriever.search(
+        # ── Step 1: Semantic search gives us the candidate set ────────────
+        # There is no generic "search by free text" on GraphRetriever (it
+        # only supports targeted traversals from a known function name), so
+        # semantic search is the only way to turn a natural-language query
+        # into a set of candidate chunks. SemanticRetriever.retrieve() is
+        # synchronous (it wraps a blocking Qdrant HTTP call) — run it in a
+        # thread so we don't block the event loop.
+        filters: dict = {}
+        if filter_language:
+            filters["language"] = filter_language
+        if filter_file_prefix:
+            filters["file_path_prefix"] = filter_file_prefix
+
+        try:
+            semantic_result: SemanticSearchResult = await asyncio.to_thread(
+                self.semantic_retriever.retrieve,
                 query=query,
-                repo_name=repo_name,
+                collection_name=repo_name,
                 top_k=top_k,
-                filter_language=filter_language,
-                filter_file_prefix=filter_file_prefix,
-            ),
-            self.graph_retriever.search(
-                query=query,
-                repo_name=repo_name,
-                top_k=top_k,
-            ),
-            return_exceptions=True,  # Don't crash if one retriever fails
+                filters=filters or None,
+            )
+        except Exception as e:
+            logger.error(f"Semantic retriever failed: {e}")
+            return []
+
+        if semantic_result.is_empty:
+            logger.warning(f"No semantic candidates for query: '{query[:60]}'")
+            return []
+
+        # ── Step 2: Load the call graph for structural augmentation ───────
+        # Best-effort: if the repo has no graph (e.g. ingestion hasn't built
+        # one yet, or the language isn't graph-supported), we still return
+        # semantic-only results with structural_score=0.0 rather than failing
+        # the whole query.
+        graph_loaded = await asyncio.to_thread(
+            self.graph_retriever.load_graph, repo_name
         )
 
-        # Handle partial failures gracefully.
-        # If semantic search fails, we still try to return structural results
-        # and vice versa. Degraded results are far better than a 500 error.
-        if isinstance(semantic_results, Exception):
-            logger.error(f"Semantic retriever failed: {semantic_results}")
-            semantic_results = []
-
-        if isinstance(structural_results, Exception):
-            logger.error(f"Graph retriever failed: {structural_results}")
-            structural_results = []
-
-        # ── Step 2: Merge results by chunk_id ────────────────────────────
-        merged = self._merge_results(semantic_results, structural_results)
-
-        # ── Step 3: Compute hybrid scores ────────────────────────────────
-        scored = self._compute_hybrid_scores(merged)
+        # ── Step 3: Score each candidate with semantic + structural signal ─
+        results = await asyncio.gather(*(
+            self._score_chunk(chunk, repo_name, graph_loaded)
+            for chunk in semantic_result.chunks
+        ))
 
         # ── Step 4: Filter by confidence threshold ───────────────────────
         # This is a hard gate. If the best result is below 0.65, the query
@@ -294,7 +325,7 @@ class HybridRetriever:
         # generation. The generator checks this again, but filtering here
         # avoids wasting tokens on a prompt build.
         filtered = [
-            r for r in scored
+            r for r in results
             if r.hybrid_score >= settings.retrieval_confidence_threshold
         ]
 
@@ -318,118 +349,64 @@ class HybridRetriever:
     # Private Helpers
     # ─────────────────────────────────────────────────────────────────────
 
-    def _merge_results(
+    async def _score_chunk(
         self,
-        semantic_results: list[SemanticResult],
-        structural_results: list[GraphResult],
-    ) -> dict[str, HybridResult]:
+        chunk,  # retrieval.semantic_retriever.RetrievedChunk
+        repo_name: str,
+        graph_loaded: bool,
+    ) -> HybridResult:
         """
-        Combine semantic and structural results into a single dict.
+        Build a HybridResult for one semantically-retrieved chunk, augmented
+        with a structural centrality score from the call graph.
 
-        Both result types may contain the same chunk (a function that is both
-        semantically similar to the query AND structurally central in the call
-        graph). Merging by chunk_id ensures it appears once in the final list
-        with both scores populated, rather than appearing twice with one score
-        each.
-
-        For chunks that appear in only one result set:
-          - Semantic-only: structural_score = 0.0
-          - Structural-only: semantic_score = 0.0
-
-        Returns
-        -------
-        dict[str, HybridResult]
-            Keys are chunk_ids. Values are HybridResult objects with both
-            scores populated (or 0.0 where not available).
+        structural_score is the normalized count of direct callers of this
+        chunk's function (GraphRetriever.get_callers(max_depth=1)) — a proxy
+        for "how central is this function in the codebase." A function with
+        10+ direct callers is treated as fully central (score=1.0); fewer
+        callers scale down linearly; a leaf function with no callers (or one
+        that isn't in the graph at all, e.g. a class attribute) gets 0.0 and
+        is ranked on semantic similarity alone.
         """
-        merged: dict[str, HybridResult] = {}
+        structural_score = 0.0
+        graph_distance: Optional[int] = None
 
-        # Process semantic results first
-        for sem in semantic_results:
-            merged[sem.chunk_id] = HybridResult(
-                chunk_id=sem.chunk_id,
-                file_path=sem.file_path,
-                function_name=sem.function_name,
-                start_line=sem.start_line,
-                end_line=sem.end_line,
-                language=sem.language,
-                code=sem.code,
-                docstring=sem.docstring,
-                semantic_score=sem.score,
-                structural_score=0.0,   # Will be filled in below if available
-                metadata=sem.metadata,
-            )
-
-        # Overlay structural results onto the merged dict.
-        # If a chunk already exists (from semantic), add its structural score.
-        # If it's new (only in structural), create a new entry with
-        # semantic_score=0.0.
-        for struct in structural_results:
-            if struct.chunk_id in merged:
-                # Chunk found in both — augment existing entry
-                merged[struct.chunk_id].structural_score = struct.score
-                merged[struct.chunk_id].graph_distance = struct.graph_distance
-            else:
-                # Structural-only chunk — create entry with no semantic score
-                merged[struct.chunk_id] = HybridResult(
-                    chunk_id=struct.chunk_id,
-                    file_path=struct.file_path,
-                    function_name=struct.function_name,
-                    start_line=struct.start_line,
-                    end_line=struct.end_line,
-                    language=struct.language,
-                    code=struct.code,
-                    docstring=struct.docstring,
-                    semantic_score=0.0,
-                    structural_score=struct.score,
-                    graph_distance=struct.graph_distance,
-                    metadata=struct.metadata,
+        if graph_loaded:
+            try:
+                caller_result = await asyncio.to_thread(
+                    self.graph_retriever.get_callers,
+                    function_query=chunk.function_name,
+                    collection_name=repo_name,
+                    max_depth=1,
+                )
+                num_direct_callers = len(caller_result.nodes)
+                structural_score = min(num_direct_callers / 10.0, 1.0)
+                if num_direct_callers > 0:
+                    graph_distance = 1
+            except Exception as e:
+                logger.debug(
+                    f"Structural lookup failed for '{chunk.function_name}': {e}"
                 )
 
-        logger.debug(
-            f"Merged {len(semantic_results)} semantic + "
-            f"{len(structural_results)} structural → {len(merged)} unique chunks"
+        hybrid_score = (
+            self.semantic_weight * chunk.similarity_score
+            + self.structural_weight * structural_score
         )
-        return merged
 
-    def _compute_hybrid_scores(
-        self,
-        merged: dict[str, HybridResult],
-    ) -> list[HybridResult]:
-        """
-        Apply weighted fusion to compute a final hybrid_score for each chunk.
-
-        Formula
-        ───────
-            hybrid_score = (w_sem × semantic_score) + (w_str × structural_score)
-
-        Both input scores are already in [0, 1] from their respective
-        retrievers. The weighted sum is therefore also in [0, 1], making it
-        directly comparable to the confidence threshold.
-
-        Why this formula instead of something fancier (e.g. RRF)?
-        Reciprocal Rank Fusion is rank-based and doesn't use the raw scores —
-        it works well when scores from different systems are on incomparable
-        scales. Here, both scores are cosine similarities normalized to [0, 1],
-        so a weighted linear combination is appropriate and interpretable.
-
-        Parameters
-        ----------
-        merged : dict[str, HybridResult]
-            Output of _merge_results.
-
-        Returns
-        -------
-        list[HybridResult]
-            Same chunks with hybrid_score populated.
-        """
-        results = list(merged.values())
-        for result in results:
-            result.hybrid_score = (
-                self.semantic_weight * result.semantic_score
-                + self.structural_weight * result.structural_score
-            )
-        return results
+        return HybridResult(
+            chunk_id=chunk.chunk_id,
+            file_path=chunk.file_path,
+            function_name=chunk.function_name,
+            start_line=chunk.start_line,
+            end_line=chunk.end_line,
+            language=chunk.language,
+            code=chunk.code_snippet,
+            docstring=chunk.docstring,
+            semantic_score=chunk.similarity_score,
+            structural_score=structural_score,
+            hybrid_score=hybrid_score,
+            graph_distance=graph_distance,
+            metadata={"complexity": chunk.complexity},
+        )
 
     def score_breakdown(self, result: HybridResult) -> str:
         """
