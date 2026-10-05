@@ -12,7 +12,7 @@ Never import os.getenv() directly in other modules — always go through setting
 
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, model_validator
 from functools import lru_cache
 from typing import List
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     """
 
     # ── Groq ────────────────────────────────────────────────────
-    groq_api_key: str = Field(..., env="GROQ_API_KEY")
+    groq_api_key: str = Field(...)
     groq_model: str = Field(
         # llama-3.1-70b-versatile (the model this project was originally
         # benchmarked against, see Architecture-notes.md §3) was decommissioned
@@ -42,51 +42,45 @@ class Settings(BaseSettings):
         # against a live account — verify against
         # https://console.groq.com/docs/models if this starts erroring with
         # "model_decommissioned" again, Groq's catalog changes over time.
-        default="openai/gpt-oss-120b",
-        env="GROQ_MODEL"
+        default="openai/gpt-oss-120b"
     )
     # Groq exposes an OpenAI-compatible chat completions endpoint, so the
     # `openai` SDK client can be reused as-is by pointing base_url here
     # instead of at api.openai.com (see Architecture-notes.md §3). This is
     # the ONLY thing that makes a Groq call different from an OpenAI call.
     groq_base_url: str = Field(
-        default="https://api.groq.com/openai/v1",
-        env="GROQ_BASE_URL"
+        default="https://api.groq.com/openai/v1"
     )
     # Rate limit handling — free tier is ~30 req/min
-    groq_retry_delay: float = Field(default=2.0, env="GROQ_RETRY_DELAY")
-    groq_max_retries: int = Field(default=3, env="GROQ_MAX_RETRIES")
+    groq_retry_delay: float = Field(default=2.0)
+    groq_max_retries: int = Field(default=3)
 
     # ── GitHub ───────────────────────────────────────────────────
-    github_token: str = Field(..., env="GITHUB_TOKEN")
+    github_token: str = Field(...)
 
     # ── Qdrant ───────────────────────────────────────────────────
-    qdrant_host: str = Field(default="localhost", env="QDRANT_HOST")
-    qdrant_port: int = Field(default=6333, env="QDRANT_PORT")
-    qdrant_api_key: str = Field(default="", env="QDRANT_API_KEY")
+    qdrant_host: str = Field(default="localhost")
+    qdrant_port: int = Field(default=6333)
+    qdrant_api_key: str = Field(default="")
     qdrant_collection_prefix: str = Field(
-        default="codesense",
-        env="QDRANT_COLLECTION_PREFIX"
+        default="codesense"
     )
 
     # ── Redis ─────────────────────────────────────────────────────
-    redis_host: str = Field(default="localhost", env="REDIS_HOST")
-    redis_port: int = Field(default=6379, env="REDIS_PORT")
-    redis_db: int = Field(default=0, env="REDIS_DB")
-    redis_password: str = Field(default="", env="REDIS_PASSWORD")
+    redis_host: str = Field(default="localhost")
+    redis_port: int = Field(default=6379)
+    redis_db: int = Field(default=0)
+    redis_password: str = Field(default="")
     redis_url: str = Field(
-        default="redis://localhost:6379/0",
-        env="REDIS_URL"
+        default="redis://localhost:6379/0"
     )
 
     # ── Celery ────────────────────────────────────────────────────
     celery_broker_url: str = Field(
-        default="redis://localhost:6379/0",
-        env="CELERY_BROKER_URL"
+        default="redis://localhost:6379/0"
     )
     celery_result_backend: str = Field(
-        default="redis://localhost:6379/0",
-        env="CELERY_RESULT_BACKEND"
+        default="redis://localhost:6379/0"
     )
 
     # ── Embedding Models ─────────────────────────────────────────
@@ -103,12 +97,10 @@ class Settings(BaseSettings):
     # on spot checks.
     # bge-small downloads ~130MB on first run, cached to transformers_cache.
     codebert_model_name: str = Field(
-        default="BAAI/bge-small-en-v1.5",
-        env="CODEBERT_MODEL_NAME"
+        default="BAAI/bge-small-en-v1.5"
     )
     transformers_cache: str = Field(
-        default="./.model_cache",
-        env="TRANSFORMERS_CACHE"
+        default="./.model_cache"
     )
     # bge-small-en-v1.5 is 384-dim (CLS-pooled), not 768 like CodeBERT.
     # embeddings/code_embedder.py.get_embedding_dim() reads this from the
@@ -116,12 +108,10 @@ class Settings(BaseSettings):
     # collections still need re-creating (not just re-upserting) if you
     # change to a model with a different dimension — see qdrant_client.py.
     semantic_embedding_dim: int = Field(
-        default=384,
-        env="SEMANTIC_EMBEDDING_DIM"
+        default=384
     )
     structural_embedding_dim: int = Field(
-        default=128,
-        env="STRUCTURAL_EMBEDDING_DIM"
+        default=128
     )
 
     # ── Retrieval Settings ────────────────────────────────────────
@@ -140,8 +130,7 @@ class Settings(BaseSettings):
     # correct-but-not-top-cosine matches. Re-measure before changing this
     # again if the embedding model changes (see code_embedder.py docstring).
     retrieval_confidence_threshold: float = Field(
-        default=0.5,
-        env="RETRIEVAL_CONFIDENCE_THRESHOLD"
+        default=0.5
     )
     # Raised from 20: with the same real queries, some correct answers
     # ranked in the 30s-50s by raw cosine similarity alone (bge-small isn't
@@ -151,38 +140,32 @@ class Settings(BaseSettings):
     # include the correct chunk; going that high wasn't pursued further
     # since it stops paying off at larger repo scale (every query reranks
     # a much bigger slice of the corpus).
-    retrieval_top_k: int = Field(default=30, env="RETRIEVAL_TOP_K")
-    reranker_top_n: int = Field(default=5, env="RERANKER_TOP_N")
+    retrieval_top_k: int = Field(default=30)
+    reranker_top_n: int = Field(default=5)
 
     # Hybrid weights — must sum to 1.0
     # Default comes from Day 8 experiment: 0.7/0.3 gave best Precision@5
     hybrid_semantic_weight: float = Field(
-        default=0.7,
-        env="HYBRID_SEMANTIC_WEIGHT"
+        default=0.7
     )
     hybrid_structural_weight: float = Field(
-        default=0.3,
-        env="HYBRID_STRUCTURAL_WEIGHT"
+        default=0.3
     )
 
     # ── Re-ranker ─────────────────────────────────────────────────
     reranker_model_name: str = Field(
-        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
-        env="RERANKER_MODEL_NAME"
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2"
     )
 
     # ── Ingestion Settings ────────────────────────────────────────
     repo_clone_dir: str = Field(
-        default="./cloned_repos",
-        env="REPO_CLONE_DIR"
+        default="./cloned_repos"
     )
     ingestion_warn_threshold: int = Field(
-        default=50_000,
-        env="INGESTION_WARN_THRESHOLD"
+        default=50_000
     )
     ingestion_max_files: int = Field(
-        default=100_000,
-        env="INGESTION_MAX_FILES"
+        default=100_000
     )
     # pydantic-settings tries to JSON-decode any List[...]-typed field read
     # from a .env value, but .env stores this as a plain comma-separated
@@ -192,11 +175,8 @@ class Settings(BaseSettings):
     # plain str, and `ingestion_skip_extensions` below exposes it as a list.
     ingestion_skip_extensions_csv: str = Field(
         default=".min.js,.min.css,.lock,.sum,.mod",
-        # Field(env=...) is pydantic v1 syntax and has no effect in pydantic
-        # v2 / pydantic-settings — env-var matching there is by uppercased
-        # field name, or (since the field name itself was renamed to
-        # _csv to dodge the List[...] JSON-decode issue above) an explicit
-        # validation_alias, which IS respected.
+        # The field name was renamed to _csv to dodge the List[...]
+        # JSON-decode issue above, so the env var is mapped explicitly.
         validation_alias="INGESTION_SKIP_EXTENSIONS",
     )
 
@@ -215,20 +195,30 @@ class Settings(BaseSettings):
     }
 
     # ── FastAPI Backend ───────────────────────────────────────────
-    backend_host: str = Field(default="0.0.0.0", env="BACKEND_HOST")
-    backend_port: int = Field(default=8000, env="BACKEND_PORT")
-    backend_reload: bool = Field(default=True, env="BACKEND_RELOAD")
+    backend_host: str = Field(default="0.0.0.0")
+    backend_port: int = Field(default=8000)
+    backend_reload: bool = Field(default=True)
     rate_limit_per_minute: int = Field(
-        default=30,
-        env="RATE_LIMIT_PER_MINUTE"
+        default=30
     )
+    # Comma-separated browser origins allowed to call the API. Plain string
+    # (not List[str]) for the same .env JSON-decoding reason as
+    # INGESTION_SKIP_EXTENSIONS above. "*" allows any origin.
+    cors_origins_csv: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173",
+        validation_alias="CORS_ORIGINS",
+    )
+    # Only trust X-Forwarded-For for rate limiting when the API sits behind a
+    # reverse proxy that overwrites it. Otherwise any client can send a fresh
+    # fake IP on every request and never be rate-limited.
+    trust_proxy_headers: bool = Field(default=False)
 
     # ── Logging ───────────────────────────────────────────────────
-    log_level: str = Field(default="INFO", env="LOG_LEVEL")
-    log_file: str = Field(default="./logs/codesense.log", env="LOG_FILE")
+    log_level: str = Field(default="INFO")
+    log_file: str = Field(default="./logs/codesense.log")
 
     # ── Environment ───────────────────────────────────────────────
-    environment: str = Field(default="development", env="ENVIRONMENT")
+    environment: str = Field(default="development")
 
     # ── Validators ────────────────────────────────────────────────
 
@@ -244,6 +234,10 @@ class Settings(BaseSettings):
         return self
 
     # ── Derived Properties ────────────────────────────────────────
+
+    @property
+    def cors_origins(self) -> List[str]:
+        return [o.strip() for o in self.cors_origins_csv.split(",") if o.strip()]
 
     @property
     def is_production(self) -> bool:
@@ -281,10 +275,15 @@ class Settings(BaseSettings):
                 return lang
         return None
 
-    class Config:
-        env_file = str(_ENV_FILE)
-        env_file_encoding = "utf-8"
-        env_list_separator = ","   # Allows INGESTION_SKIP_EXTENSIONS=.min.js,.lock
+    # Env vars match field names case-insensitively (GROQ_API_KEY →
+    # groq_api_key); fields that need a different env name use
+    # validation_alias. extra="ignore" lets .env hold keys used only by
+    # docker-compose or other tools without failing validation.
+    model_config = SettingsConfigDict(
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 @lru_cache()
