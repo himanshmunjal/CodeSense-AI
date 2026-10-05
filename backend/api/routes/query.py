@@ -83,6 +83,7 @@ from retrieval.semantic_retriever import semantic_retriever, SemanticSearchResul
 from retrieval.graph_retriever import graph_retriever, GraphNode, GraphSearchResult
 from retrieval.reranker import Reranker, RankedResult
 from generation.generator import generate
+from parsing.tree_sitter_parser import parse_source_string, walk_tree
 from generation.response_schema import (
     CodeSourceReference,
     QueryType as GenQueryType,
@@ -735,10 +736,132 @@ def _apply_snippet_budget(sources: list[CodeSourceReference]) -> list[CodeSource
             break
         snippet = src.snippet
         if len(snippet) > remaining:
-            snippet = snippet[:remaining] + "\n... [truncated]"
+            # A head cut silently hides everything past the cutoff — for a
+            # class chunk that means every method below it vanishes, and the
+            # LLM truthfully reports it "can't see" code that was retrieved.
+            # An outline keeps every definition (with absolute line numbers)
+            # visible at a fraction of the size. Fall back to the head cut
+            # for chunks with no nested definitions or unparseable languages.
+            snippet = _outline_snippet(src) or snippet
+            if len(snippet) > remaining:
+                snippet = snippet[:remaining] + "\n... [truncated]"
         result.append(src.model_copy(update={"snippet": snippet}))
         remaining -= len(snippet)
     return result
+
+
+# tree-sitter node types that count as a "definition" worth listing in an
+# outline, across every language in parsing/tree_sitter_parser.py's registry.
+_OUTLINE_NODE_TYPES = frozenset({
+    # python
+    "function_definition", "class_definition",
+    # java
+    "method_declaration", "constructor_declaration",
+    "class_declaration", "interface_declaration", "enum_declaration",
+    # javascript / typescript
+    "function_declaration", "method_definition",
+    # go: function_declaration / method_declaration already covered above
+})
+
+
+def _outline_snippet(src: CodeSourceReference) -> Optional[str]:
+    """
+    Replace an over-budget snippet with its header line plus the signature of
+    every nested definition, each tagged with its absolute line number.
+
+    Observed failure this fixes: "Where is the request context pushed?"
+    retrieved the 9.9K-char AppContext class chunk (ctx.py:260-525). The
+    budget head-cut it at 6000 chars; `def push` began at char 6064, so the
+    LLM answered that no push operation was shown. With an outline, the
+    model still sees `L416: def push(self) -> None:` and can cite it.
+
+    Returns None when there's nothing useful to outline (no nested
+    definitions, unsupported language, parse failure) so the caller falls
+    back to a plain head cut.
+    """
+    try:
+        tree = parse_source_string(src.snippet, src.language)
+    except ValueError:  # language not in the tree-sitter registry
+        return None
+    if tree is None:
+        return None
+
+    source_bytes = src.snippet.encode("utf-8")
+    entries: list[str] = []
+    for node in walk_tree(tree.root_node):
+        # Row 0 is the chunk's own definition — the header line covers it.
+        if node.type not in _OUTLINE_NODE_TYPES or node.start_point[0] == 0:
+            continue
+        # Signature = everything before the body, whitespace-collapsed so
+        # multi-line parameter lists stay on one outline line.
+        body = node.child_by_field_name("body")
+        sig_end = body.start_byte if body is not None else node.end_byte
+        signature = " ".join(
+            source_bytes[node.start_byte:sig_end].decode("utf-8", "replace").split()
+        )
+        indent = " " * node.start_point[1]
+        line_no = src.start_line + node.start_point[0]
+        entries.append(f"{indent}L{line_no}: {signature[:200]}")
+
+    if not entries:
+        return None
+
+    header = src.snippet.split("\n", 1)[0]
+    return (
+        f"{header}\n"
+        f"    # [chunk too large for the prompt — outline only, bodies omitted. "
+        f"Full source spans L{src.start_line}-L{src.end_line}.]\n"
+        + "\n".join(entries)
+    )
+
+
+def _order_specific_before_containers(reranked: list[RankedResult]) -> list[RankedResult]:
+    """
+    Move any result whose line range contains another result (same file)
+    to just after the last result it contains.
+
+    WHY:
+        The cross-encoder often scores a whole CLASS chunk slightly above the
+        METHOD chunk the question is actually about — the class contains the
+        method's text plus more matching words. Observed: for "Where is the
+        request context pushed?", AppContext (260-525) reranked at 5.59 and
+        AppContext.push (416-444) at 5.36. Because _apply_snippet_budget
+        spends budget in rank order, the 9.9K class chunk consumed all of it
+        and push() was dropped entirely.
+
+        Putting the specific chunk first guarantees its full body reaches the
+        LLM; the container still follows (outlined if it no longer fits), so
+        overview questions keep the class-level context too.
+
+    Order is otherwise preserved. Strict containment is a partial order (equal
+    ranges are not treated as containment), so there are no cycles.
+    """
+    n = len(reranked)
+
+    def contains(a: RankedResult, b: RankedResult) -> bool:
+        return (
+            a.file_path == b.file_path
+            and a.start_line <= b.start_line
+            and b.end_line <= a.end_line
+            and (a.start_line, a.end_line) != (b.start_line, b.end_line)
+        )
+
+    children = [
+        [j for j in range(n) if j != i and contains(reranked[i], reranked[j])]
+        for i in range(n)
+    ]
+
+    # Effective position: a container sorts just after its latest-placed
+    # descendant. Memoised recursion handles nesting (module > class > method).
+    positions: dict[int, float] = {}
+
+    def position(i: int) -> float:
+        if i not in positions:
+            positions[i] = max([float(i)] + [position(j) + 0.5 for j in children[i]])
+        return positions[i]
+
+    order = sorted(range(n), key=lambda i: (position(i), i))
+    return [reranked[i] for i in order]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1092,7 +1215,9 @@ async def _execute_query(
     # generation/generator.py handles prompt construction and the Groq
     # call. It expects CodeSourceReference objects, not RankedResult — build
     # those from the reranked results.
-    gen_sources = _apply_snippet_budget([_to_source_reference(r) for r in reranked])
+    gen_sources = _apply_snippet_budget(
+        [_to_source_reference(r) for r in _order_specific_before_containers(reranked)]
+    )
 
     generation = await asyncio.to_thread(
         generate,
