@@ -213,7 +213,10 @@ def clone_repository(
         if branch:
             clone_kwargs["branch"] = branch
 
-        git.Repo.clone_from(clone_url, str(clone_path), env=_git_auth_env(), **clone_kwargs)
+        _with_auth_fallback(
+            lambda env: git.Repo.clone_from(clone_url, str(clone_path), env=env, **clone_kwargs),
+            cleanup=lambda: shutil.rmtree(clone_path, ignore_errors=True),
+        )
         logger.success(f"Clone complete: {clone_path}")
         return clone_path
 
@@ -243,10 +246,38 @@ def _update_existing_clone(clone_path: Path, clone_url: str, branch: Optional[st
 
     ref = branch or "HEAD"
     logger.info(f"Repository already cloned at {clone_path}. Fetching latest '{ref}'.")
-    with repo.git.custom_environment(**_git_auth_env()):
-        origin.fetch(ref, depth=1)
+    def fetch(env: dict[str, str]) -> None:
+        with repo.git.custom_environment(**env):
+            origin.fetch(ref, depth=1)
+
+    _with_auth_fallback(fetch)
     repo.git.reset("--hard", "FETCH_HEAD")
     logger.info(f"Updated {clone_path} to {repo.head.commit.hexsha[:8]}")
+
+
+def _with_auth_fallback(git_call, cleanup=None):
+    """
+    Run `git_call(env)` with the GitHub token, retrying once without it if
+    GitHub rejects the token.
+
+    A bad token (expired, revoked, or rotated in .env while the worker kept
+    the old value) makes GitHub refuse even PUBLIC repos — so for the common
+    case it's better to warn and retry anonymously. Private repos still fail,
+    with GitHub's own "not found" error.
+    """
+    auth_env = _git_auth_env()
+    try:
+        return git_call(auth_env)
+    except git.GitCommandError as exc:
+        if not auth_env or "Authentication failed" not in str(exc):
+            raise
+        logger.warning(
+            "GitHub rejected GITHUB_TOKEN (invalid, expired, or changed in .env "
+            "after this process started — restart it). Retrying without auth."
+        )
+        if cleanup:
+            cleanup()
+        return git_call({"GIT_TERMINAL_PROMPT": "0"})
 
 
 def _build_clone_url(owner: str, repo_name: str) -> str:
