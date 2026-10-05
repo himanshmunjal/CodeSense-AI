@@ -353,7 +353,9 @@ class MetadataBuilder:
         # Step 1: Resolve the entity type.
         # tree-sitter reports raw types like "function_definition" or
         # "method_declaration". We normalize these to our ChunkType enum.
-        chunk_type = self._resolve_chunk_type(raw.get("type", ""), language)
+        chunk_type = self._resolve_chunk_type(
+            raw.get("type", ""), language, raw.get("class_name")
+        )
 
         # Step 2: Convert tree-sitter's 0-based row indices to 1-based line numbers.
         # tree-sitter uses 0-indexed rows (row 0 = first line). Humans and every
@@ -413,7 +415,9 @@ class MetadataBuilder:
             ingested_at          = datetime.utcnow(),
         )
 
-    def _resolve_chunk_type(self, raw_type: str, language: Language) -> ChunkType:
+    def _resolve_chunk_type(
+        self, raw_type: str, language: Language, class_name: Optional[str] = None
+    ) -> ChunkType:
         """
         Maps a tree-sitter node type string to our ChunkType enum.
 
@@ -429,6 +433,7 @@ class MetadataBuilder:
         Args:
             raw_type: The tree-sitter node type string from entity_extractor.py.
             language: The language of the source file (used for disambiguation).
+            class_name: Enclosing class, if any — upgrades FUNCTION to METHOD.
 
         Returns:
             The matching ChunkType enum value.
@@ -478,6 +483,8 @@ class MetadataBuilder:
                 f"Add it to MetadataBuilder._resolve_chunk_type() if valid."
             )
 
+        if chunk_type == ChunkType.FUNCTION and class_name:
+            return ChunkType.METHOD
         return chunk_type
 
     def _compute_cyclomatic_complexity(self, decision_points: int) -> int:
