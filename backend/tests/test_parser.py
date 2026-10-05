@@ -391,6 +391,26 @@ class TestCallGraph:
         graph = self._graph(_extract(python_sample, "python", tmp_path))
         assert not graph.has_edge("sample.py::hash_token", "sample.py::verify_hash")
 
+    def test_nested_definitions_are_not_calls(self, tmp_path):
+        """
+        A nested `def __call__(` is a definition, not a call. Real case
+        (pallets/flask): test helpers defining WSGI middleware with their own
+        `__call__` were linked as callers of Flask.__call__.
+        """
+        source = (
+            "class Flask:\n"
+            "    def __call__(self, environ):\n"
+            "        return environ\n"
+            "\n"
+            "def make_middleware(app):\n"
+            "    class Middleware:\n"
+            "        def __call__(self, environ):\n"
+            "            return app(environ)\n"
+            "    return Middleware()\n"
+        )
+        graph = self._graph(_extract(source, "python", tmp_path))
+        assert not graph.has_edge("sample.py::make_middleware", "sample.py::Flask.__call__")
+
     def test_reverse_traversal_finds_all_callers(self, python_sample, tmp_path):
         graph = self._graph(_extract(python_sample, "python", tmp_path))
         callers = set(graph.predecessors("sample.py::hash_token"))
