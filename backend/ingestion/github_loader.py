@@ -27,6 +27,7 @@ DESIGN DECISIONS:
       through environment variables loaded at startup via config.py.
 """
 
+import base64
 import os
 import shutil
 import tempfile
@@ -35,7 +36,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import git  # gitpython
-from github import Github, GithubException, Repository
+from github import Auth, Github, GithubException, Repository
 from loguru import logger
 
 from config import settings
@@ -55,14 +56,14 @@ def _build_github_client() -> Github:
         essential when ingesting large repos with hundreds of files.
         We use the token from settings so credentials never appear in code.
     """
-    token = settings.GITHUB_TOKEN
+    token = settings.github_token
     if not token:
         logger.warning(
             "GITHUB_TOKEN not set. Falling back to unauthenticated access "
             "(60 req/hr rate limit). Set the token in your .env file."
         )
         return Github()
-    return Github(token)
+    return Github(auth=Auth.Token(token))
 
 
 # Module-level client — created once, reused across all calls in this process.
@@ -196,10 +197,11 @@ def clone_repository(
 
     clone_path = Path(target_dir)
 
-    # If the directory already contains a git repo, skip re-cloning.
-    # This handles the case where ingestion is re-triggered for an already-cloned repo.
+    # If the directory already contains a git repo, update it in place instead
+    # of re-cloning. Returning the existing checkout as-is would mean a
+    # re-ingest never sees any commit pushed after the first clone.
     if (clone_path / ".git").exists():
-        logger.info(f"Repository already cloned at {clone_path}. Skipping clone.")
+        _update_existing_clone(clone_path, clone_url, branch)
         return clone_path
 
     logger.info(f"Cloning {owner}/{repo_name} → {clone_path}")
@@ -211,7 +213,7 @@ def clone_repository(
         if branch:
             clone_kwargs["branch"] = branch
 
-        git.Repo.clone_from(clone_url, str(clone_path), **clone_kwargs)
+        git.Repo.clone_from(clone_url, str(clone_path), env=_git_auth_env(), **clone_kwargs)
         logger.success(f"Clone complete: {clone_path}")
         return clone_path
 
@@ -223,29 +225,60 @@ def clone_repository(
         raise
 
 
+def _update_existing_clone(clone_path: Path, clone_url: str, branch: Optional[str]) -> None:
+    """
+    Fast-forward an existing shallow clone to the latest commit of `branch`
+    (or the remote's default branch when None).
+
+    A shallow, single-branch clone can't simply `git pull` another branch, so
+    we fetch exactly one commit of the requested ref and hard-reset onto it.
+    The previous HEAD commit stays in the object store, so ChangeDetector can
+    still compare the old and new commits afterwards.
+    """
+    repo = git.Repo(str(clone_path))
+    origin = repo.remote("origin")
+    # Clones made before auth moved to _git_auth_env() have the token embedded
+    # in their origin URL (and therefore in .git/config) — reset it.
+    origin.set_url(clone_url)
+
+    ref = branch or "HEAD"
+    logger.info(f"Repository already cloned at {clone_path}. Fetching latest '{ref}'.")
+    with repo.git.custom_environment(**_git_auth_env()):
+        origin.fetch(ref, depth=1)
+    repo.git.reset("--hard", "FETCH_HEAD")
+    logger.info(f"Updated {clone_path} to {repo.head.commit.hexsha[:8]}")
+
+
 def _build_clone_url(owner: str, repo_name: str) -> str:
     """
-    Construct the authenticated HTTPS clone URL for a repository.
+    Construct the plain HTTPS clone URL for a repository.
 
-    WHY:
-        Using the token in the URL allows gitpython to authenticate without
-        requiring a configured SSH key or credential helper — important for
-        portability across developer machines and CI environments.
-        We embed the token only in the clone URL string (never written to disk).
-
-    Args:
-        owner:     GitHub username or organisation name.
-        repo_name: Repository name.
-
-    Returns:
-        A full HTTPS clone URL, with token embedded if available.
+    The token is deliberately NOT embedded in the URL: git persists the clone
+    URL as the `origin` remote in .git/config, and GitCommandError messages
+    (which end up in logs and in the ingest status API response) include the
+    full command line. Authentication is supplied via _git_auth_env() instead.
     """
-    base = f"https://github.com/{owner}/{repo_name}.git"
-    token = settings.GITHUB_TOKEN
-    if token:
-        # Format: https://<token>@github.com/owner/repo.git
-        return f"https://{token}@github.com/{owner}/{repo_name}.git"
-    return base
+    return f"https://github.com/{owner}/{repo_name}.git"
+
+
+def _git_auth_env() -> dict[str, str]:
+    """
+    Environment variables that make git send the GitHub token as an HTTP
+    Authorization header for a single command, without writing it to any
+    config file or putting it on the command line (GIT_CONFIG_COUNT/KEY/VALUE
+    are git's documented per-process config overrides, git >= 2.31).
+    """
+    token = settings.github_token
+    if not token:
+        return {}
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+        # Never block on an interactive credential prompt inside a worker.
+        "GIT_TERMINAL_PROMPT": "0",
+    }
 
 
 # ---------------------------------------------------------------------------
