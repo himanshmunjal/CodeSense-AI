@@ -1,0 +1,15 @@
+log_level: INFO
+
+storage:
+  storage_path: /qdrant/storage
+  on_disk_payload: true
+
+service:
+  host: 0.0.0.0
+  http_port: 6333
+  grpc_port: 6334
+  enable_cors: true
+
+# CodeSense stores two named vectors per point (semantic 384-dim + structural
+# 128-dim) — no special config needed here, collection-level vector params are
+# set at collection-creation time by indexing/qdrant_client.py.
