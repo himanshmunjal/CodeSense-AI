@@ -145,6 +145,10 @@ class RetrievedChunk:
     docstring: str
     similarity_score: float
     complexity: int = 0
+    embedding: Optional[list[float]] = None
+    """The "semantic" named vector, populated only when retrieve() is called
+    with include_vectors=True. None otherwise — see features/inconsistency_detector.py
+    for the one consumer that needs this."""
 
     @property
     def citation(self) -> str:
@@ -225,7 +229,7 @@ class SemanticSearchResult:
         Returns True if any result exceeds the confidence threshold.
 
         This is the key gate that prevents hallucination: generator.py checks
-        this before calling GPT-4o. If False, the system returns a "not found"
+        this before calling the LLM. If False, the system returns a "not found"
         response instead of generating from insufficient context.
         """
         return self.max_similarity >= settings.retrieval_confidence_threshold
@@ -312,6 +316,7 @@ class SemanticRetriever:
         collection_name: str,
         top_k: Optional[int] = None,
         filters: Optional[dict] = None,
+        include_vectors: bool = False,
     ) -> SemanticSearchResult:
         """
         Retrieve semantically similar code chunks for a given query.
@@ -342,6 +347,13 @@ class SemanticRetriever:
             Supported keys: language, file_path_prefix, function_name,
             min_complexity, max_complexity.
             Populated by query_classifier.py's suggested_filters field.
+
+        include_vectors : bool, optional
+            When True, the "semantic" named vector is fetched back alongside
+            each result and attached to RetrievedChunk.embedding. Needed by
+            features/inconsistency_detector.py for ANALYTICAL queries, which
+            clusters chunks by embedding — normal LOOKUP/SUMMARIZATION queries
+            don't need this and leave it False to save bandwidth.
 
         Returns
         ───────
@@ -395,9 +407,11 @@ class SemanticRetriever:
                 # we would get only IDs and would need a second lookup to get metadata.
                 with_payload=True,
 
-                # with_vectors=False — we don't need to retrieve the stored vectors,
-                # just the similarity scores and metadata. Omitting them saves bandwidth.
-                with_vectors=False,
+                # with_vectors=False by default — we don't usually need the stored
+                # vectors back, just the similarity scores and metadata. Set to
+                # True (via include_vectors=) only for ANALYTICAL queries, which
+                # need the raw embeddings for k-means clustering.
+                with_vectors=["semantic"] if include_vectors else False,
 
                 # score_threshold applies a minimum cosine similarity at the Qdrant
                 # layer before results are returned. This is more efficient than
@@ -502,9 +516,12 @@ class SemanticRetriever:
 
         if "function_name" in filters:
             # Exact function name match — used when the user names a specific function.
+            # Payload key is "entity_name" (see CodeChunk.to_qdrant_payload()) —
+            # "function_name" was never written to Qdrant, that name only exists
+            # on the RetrievedChunk dataclass this module returns.
             conditions.append(
                 qdrant_models.FieldCondition(
-                    key="function_name",
+                    key="entity_name",
                     match=qdrant_models.MatchValue(value=filters["function_name"])
                 )
             )
@@ -514,7 +531,7 @@ class SemanticRetriever:
             # "find highly complex functions" (min_complexity=10 or higher).
             conditions.append(
                 qdrant_models.FieldCondition(
-                    key="complexity",
+                    key="cyclomatic_complexity",
                     range=qdrant_models.Range(gte=filters["min_complexity"])
                 )
             )
@@ -523,7 +540,7 @@ class SemanticRetriever:
             # Complexity upper bound — useful for "find simple utility functions".
             conditions.append(
                 qdrant_models.FieldCondition(
-                    key="complexity",
+                    key="cyclomatic_complexity",
                     range=qdrant_models.Range(lte=filters["max_complexity"])
                 )
             )
@@ -566,17 +583,24 @@ class SemanticRetriever:
 
             # .get() with defaults prevents KeyError if a field is missing from
             # the payload (e.g., if the schema evolved after some chunks were indexed).
+            # Keys here must match CodeChunk.to_qdrant_payload() in
+            # indexing/chunk_schema.py, not this dataclass's own field names.
             chunk = RetrievedChunk(
                 chunk_id=str(point.id),
                 file_path=payload.get("file_path", "unknown"),
-                function_name=payload.get("function_name", "unknown"),
+                function_name=payload.get("fully_qualified_name") or payload.get("entity_name", "unknown"),
                 start_line=payload.get("start_line", 0),
                 end_line=payload.get("end_line", 0),
                 language=payload.get("language", "unknown"),
-                code_snippet=payload.get("code_snippet", ""),
+                code_snippet=payload.get("source_code", ""),
                 docstring=payload.get("docstring", ""),
                 similarity_score=float(point.score),
-                complexity=payload.get("complexity", 0),
+                complexity=payload.get("cyclomatic_complexity", 0),
+                # point.vector is None unless retrieve() was called with
+                # include_vectors=True, in which case it's a dict of named
+                # vectors ({"semantic": [...]}) since this is a multi-vector
+                # collection — see indexing/qdrant_client.py's VECTOR_SEMANTIC.
+                embedding=(point.vector or {}).get("semantic") if point.vector else None,
             )
             chunks.append(chunk)
 

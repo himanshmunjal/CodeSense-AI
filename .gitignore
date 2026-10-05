@@ -14,7 +14,20 @@ __pycache__/
 # IDE files
 .vscode/
 .idea/
+# Runtime artifacts (paths are relative to backend/, where the API and
+# worker run — see LOG_FILE / REPO_CLONE_DIR / TRANSFORMERS_CACHE in .env)
+logs/
+*.log
+cloned_repos/
+.model_cache/
 
-README.md
+# Test / tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Frontend (also covered by frontend/.gitignore)
+node_modules/
+dist/
+
 Prerequisets.md
-Architecture-notes.md

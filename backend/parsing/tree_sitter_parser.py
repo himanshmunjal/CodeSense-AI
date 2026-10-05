@@ -47,6 +47,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import tree_sitter_go as tsgo
 import tree_sitter_java as tsjava
 import tree_sitter_javascript as tsjs
 import tree_sitter_python as tspython
@@ -86,6 +87,7 @@ def _build_language_registry() -> dict[str, Language]:
         "javascript": Language(tsjs.language()),
         "typescript": Language(tsts.language_typescript()),
         "java":       Language(tsjava.language()),
+        "go":         Language(tsgo.language()),
     }
 
 

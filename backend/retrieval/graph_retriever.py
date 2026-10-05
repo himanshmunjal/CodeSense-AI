@@ -85,6 +85,7 @@ DEPENDENCIES
 
 import os
 import pickle
+import threading
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -270,15 +271,36 @@ class GraphRetriever:
         multiple repositories by swapping graphs between requests, and makes
         testing easier (tests can inject a mock graph without disk I/O).
         """
-        # The active networkx DiGraph for the currently loaded repository.
-        # None until load_graph() is called successfully.
-        self._graph: Optional[nx.DiGraph] = None
+        # Loaded graphs keyed by collection name, alongside the pickle's mtime
+        # so a re-ingest (which rewrites call_graph.pkl) is picked up without
+        # restarting the API process.
+        self._cache: dict[str, tuple[float, nx.DiGraph]] = {}
+        self._cache_lock = threading.Lock()
 
-        # Track which collection's graph is currently loaded, to avoid
-        # redundant disk reads when the same repo is queried repeatedly.
-        self._loaded_collection: Optional[str] = None
+        # The graph the current thread is working on. Module-level instances
+        # of this class are shared by concurrent requests (each running in its
+        # own worker thread via asyncio.to_thread), so a single shared "active
+        # graph" slot would let a query on repo A traverse repo B's graph if
+        # another request loaded B in between. Thread-local avoids that.
+        self._local = threading.local()
 
         logger.debug("GraphRetriever initialized (no graph loaded yet).")
+
+    @property
+    def _graph(self) -> Optional[nx.DiGraph]:
+        return getattr(self._local, "graph", None)
+
+    @_graph.setter
+    def _graph(self, graph: Optional[nx.DiGraph]) -> None:
+        self._local.graph = graph
+
+    @property
+    def _loaded_collection(self) -> Optional[str]:
+        return getattr(self._local, "collection", None)
+
+    @_loaded_collection.setter
+    def _loaded_collection(self, collection_name: Optional[str]) -> None:
+        self._local.collection = collection_name
 
     def load_graph(self, collection_name: str) -> bool:
         """
@@ -313,11 +335,6 @@ class GraphRetriever:
             True if the graph was loaded successfully. False if the file doesn't
             exist (repo not ingested yet) or the file is corrupted.
         """
-        # If this graph is already loaded, skip the disk read.
-        if self._loaded_collection == collection_name and self._graph is not None:
-            logger.debug(f"Graph already loaded for '{collection_name}' — skipping.")
-            return True
-
         graph_path = os.path.join(
             settings.repo_clone_dir,
             collection_name,
@@ -329,12 +346,26 @@ class GraphRetriever:
                 f"Call graph not found at '{graph_path}'. "
                 f"Repository may not have been ingested yet."
             )
+            self._graph = None
+            self._loaded_collection = None
             return False
+
+        # Reuse the cached graph unless the file has been rewritten since.
+        mtime = os.path.getmtime(graph_path)
+        with self._cache_lock:
+            cached = self._cache.get(collection_name)
+        if cached is not None and cached[0] == mtime:
+            self._graph = cached[1]
+            self._loaded_collection = collection_name
+            return True
 
         try:
             with open(graph_path, "rb") as f:
-                self._graph = pickle.load(f)
+                graph = pickle.load(f)
 
+            with self._cache_lock:
+                self._cache[collection_name] = (mtime, graph)
+            self._graph = graph
             self._loaded_collection = collection_name
 
             logger.info(
@@ -797,8 +828,11 @@ class GraphRetriever:
         query_lower = function_query.lower().strip()
 
         # Priority 1: Exact full match (user typed the full node ID)
-        if query_lower in self._graph.nodes:
-            return query_lower
+        if function_query.strip() in self._graph.nodes:
+            return function_query.strip()
+        for node_id in self._graph.nodes:
+            if node_id.lower() == query_lower:
+                return node_id
 
         candidates = {
             "exact_name": [],
@@ -807,10 +841,12 @@ class GraphRetriever:
         }
 
         for node_id in self._graph.nodes:
-            # Extract just the function name from "file::function_name"
+            # Extract the name from "file::function_name" / "file::Class.method".
+            # Both the qualified name and the bare method name count as exact.
             func_name = node_id.split("::")[-1].lower() if "::" in node_id else node_id.lower()
+            bare_name = func_name.rsplit(".", 1)[-1]
 
-            if func_name == query_lower:
+            if query_lower in (func_name, bare_name):
                 candidates["exact_name"].append(node_id)
             elif func_name.startswith(query_lower):
                 candidates["prefix"].append(node_id)

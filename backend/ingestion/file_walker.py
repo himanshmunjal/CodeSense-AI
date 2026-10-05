@@ -59,6 +59,7 @@ SUPPORTED_EXTENSIONS: dict[str, str] = {
     ".ts":   "typescript",
     ".tsx":  "typescript",
     ".java": "java",
+    ".go":   "go",
 }
 
 # ---------------------------------------------------------------------------

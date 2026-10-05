@@ -4,7 +4,7 @@ embeddings/graph_embedder.py — Structural embeddings from the call graph.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WHY THIS FILE EXISTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Semantic embeddings (groq_embedder.py) tell us WHAT a function does
+Semantic embeddings (code_embedder.py) tell us WHAT a function does
 based on its text. But they cannot tell us HOW a function is connected
 to the rest of the codebase.
 

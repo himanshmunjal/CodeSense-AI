@@ -44,7 +44,7 @@ QUERY TYPES
 
 CLASSIFICATION APPROACH
 ────────────────────────
-The classifier calls GPT-4o with a strict prompt that returns a structured
+The classifier calls the LLM with a strict prompt that returns a structured
 JSON response. This is intentionally LLM-based rather than rule-based because:
 
     - Rule-based classifiers (regex, keyword matching) break on paraphrasing.
@@ -60,7 +60,7 @@ JSON response. This is intentionally LLM-based rather than rule-based because:
 
 DEPENDENCIES
 ────────────
-    openai          — GPT-4o API call for classification
+    openai          — OpenAI-compatible client (pointed at Groq) for classification
     pydantic        — ClassificationResult schema + response validation
     loguru          — Structured logging
     config          — API key and model name from environment
@@ -295,12 +295,18 @@ class QueryClassifier:
         The client reads the API key from settings (which reads from .env).
         We do NOT pass the key as a parameter so that test code can mock
         the settings object without touching real credentials.
+
+        WHY groq_api_key / groq_base_url:
+        Per Architecture-notes.md §3, CodeSense uses Groq (llama-3.1-70b-
+        versatile) via its OpenAI-compatible endpoint, not real OpenAI.
+        `settings.openai_api_key` does not exist anywhere in config.py —
+        constructing the client with it was an immediate AttributeError.
         """
-        self._client = OpenAI(api_key=settings.openai_api_key)
+        self._client = OpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url)
 
         # Store model name from settings so it can be changed in .env without
-        # touching this file. Default is "gpt-4o" (see config.py).
-        self._model = settings.openai_generation_model
+        # touching this file. Default is "llama-3.1-70b-versatile" (see config.py).
+        self._model = settings.groq_model
 
         logger.debug(
             f"QueryClassifier initialized | model={self._model}"
@@ -315,7 +321,7 @@ class QueryClassifier:
         which uses query_type to decide which retrieval strategy to invoke.
 
         HOW IT WORKS:
-            1. Sends the user's query + the system prompt to GPT-4o.
+            1. Sends the user's query + the system prompt to the LLM.
             2. Receives a JSON string (enforced by response_format=json_object).
             3. Parses the JSON into a ClassificationResult Pydantic model.
             4. Returns the validated result, or a ClassificationError on failure.
@@ -376,10 +382,14 @@ class QueryClassifier:
                 # Classification is not a creative task.
                 temperature=0.0,
 
-                # Max tokens for the JSON response. The schema is small —
-                # 256 tokens is more than enough. Keeping this low avoids
-                # runaway generation costs on a high-traffic endpoint.
-                max_tokens=256,
+                # Max tokens for the JSON response. The schema itself is
+                # small, but reasoning models (e.g. openai/gpt-oss-120b on
+                # Groq — see config.py's groq_model default) spend a chunk of
+                # this budget on hidden reasoning tokens before the actual
+                # JSON content, so 256 was cutting it close enough to
+                # occasionally truncate the response before valid JSON came
+                # out. 512 leaves headroom without meaningfully raising cost.
+                max_tokens=512,
             )
 
             raw_json = response.choices[0].message.content

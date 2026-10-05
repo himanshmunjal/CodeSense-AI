@@ -1,0 +1,67 @@
+.impactgraph {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #1a1b1e;
+}
+
+.impactgraph--empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 24px;
+  flex: 1;
+}
+
+.impactgraph--error {
+  color: var(--red);
+}
+
+.impactgraph__summary {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+
+.impactgraph__filepath {
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+
+.impactgraph__stats {
+  display: flex;
+  gap: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.impactgraph__legend {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.impactgraph__legend i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+.impactgraph__canvas {
+  flex: 1;
+}
+
+.impactgraph__node-fn {
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.impactgraph__node-meta {
+  color: var(--text-dim);
+  font-size: 10px;
+}

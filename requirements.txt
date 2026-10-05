@@ -8,21 +8,27 @@ tree-sitter-python==0.23.0
 tree-sitter-javascript==0.23.0
 tree-sitter-java==0.23.0
 tree-sitter-typescript==0.23.0
+tree-sitter-go==0.23.4
 
 # ── Graph ──────────────────────────────────────────────────────
 networkx==2.8.8
 node2vec==0.4.6
+# node2vec (unmaintained since 2021) imports pkg_resources internally, which
+# modern setuptools (>=81) no longer ships — pin an older setuptools so
+# `from node2vec import Node2Vec` doesn't raise ModuleNotFoundError.
+setuptools<81
 
 # ── Embeddings (local — no API key needed) ─────────────────────
 transformers==4.41.2
 # CPU torch by default — replace with CUDA wheel if you have a GPU:
 # pip install torch==2.3.1+cu121 --index-url https://download.pytorch.org/whl/cu121
 torch==2.3.1
-sentence-transformers==3.0.1       # cross-encoder re-ranker
+sentence-transformers==3.0.1       # cross-encoder re-ranker + semantic embedder (code_embedder.py)
 
-# ── LLM — Groq (replaces OpenAI) ───────────────────────────────
+# ── LLM — Groq via its OpenAI-compatible endpoint ──────────────
+# The `openai` SDK is pointed at GROQ_BASE_URL (see config.py).
 # Free tier at console.groq.com — set GROQ_API_KEY in .env
-groq==0.9.0
+openai==1.109.1
 
 # ── Vector DB ──────────────────────────────────────────────────
 qdrant-client==1.9.1

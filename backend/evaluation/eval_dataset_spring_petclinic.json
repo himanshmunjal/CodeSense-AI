@@ -1,0 +1,36 @@
+{
+  "_meta": {
+    "description": "Small hand-written query/ground-truth set for spring-projects/spring-petclinic, used to measure Java retrieval quality as part of the multi-language (Go/Python/Java/JS-React) retrieval fix effort.",
+    "repos": ["https://github.com/spring-projects/spring-petclinic"],
+    "grounding_note": "File paths and method names fetched live via `gh api repos/spring-projects/spring-petclinic/contents/...` at dataset-authoring time (2026-09-08)."
+  },
+  "queries": [
+    {
+      "id": "spc-01",
+      "repo_url": "https://github.com/spring-projects/spring-petclinic",
+      "query": "Where are pet name and birth date validated when creating or editing a pet?",
+      "query_type": "lookup",
+      "ground_truth_file": "src/main/java/org/springframework/samples/petclinic/owner/PetValidator.java",
+      "ground_truth_function": "validate",
+      "ground_truth_answer_summary": "PetValidator.validate in owner/PetValidator.java checks that a Pet has a non-blank name (rejecting with the 'required' error code) and that a new Pet has a type set, used as a Spring Validator on the create/update pet form."
+    },
+    {
+      "id": "spc-02",
+      "repo_url": "https://github.com/spring-projects/spring-petclinic",
+      "query": "How is the list of veterinarians displayed with pagination?",
+      "query_type": "lookup",
+      "ground_truth_file": "src/main/java/org/springframework/samples/petclinic/vet/VetController.java",
+      "ground_truth_function": "showVetList",
+      "ground_truth_answer_summary": "VetController.showVetList in vet/VetController.java fetches a page of vets via findPaginated and adds pagination metadata to the model for the vets list view."
+    },
+    {
+      "id": "spc-03",
+      "repo_url": "https://github.com/spring-projects/spring-petclinic",
+      "query": "What caching configuration does the application use?",
+      "query_type": "lookup",
+      "ground_truth_file": "src/main/java/org/springframework/samples/petclinic/system/CacheConfiguration.java",
+      "ground_truth_function": "petclinicCacheConfigurationCustomizer",
+      "ground_truth_answer_summary": "CacheConfiguration.petclinicCacheConfigurationCustomizer in system/CacheConfiguration.java customizes the 'vets' JCache cache with a fixed TTL so the vets list is cached rather than hitting the database on every request."
+    }
+  ]
+}

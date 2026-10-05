@@ -275,13 +275,14 @@ class QdrantIndexer:
 
         WHY BATCH IN GROUPS OF 100:
         Qdrant's HTTP API has a practical limit on request body size.
-        A single CodeBERT vector is 768 * 4 bytes = ~3KB. 100 chunks with
-        both semantic + structural vectors = ~(768+128) * 4 * 100 ≈ 350KB
+        A single 384-dim semantic vector is 384 * 4 bytes = ~1.5KB. 100 chunks with
+        both semantic + structural vectors = ~(384+128) * 4 * 100 ≈ 200KB
         per batch, comfortably under HTTP limits. Batching also means a
         single network failure only loses one batch, not the entire ingestion.
 
         WHY DETERMINISTIC POINT IDs:
-        Each point's UUID is derived from the repo + file_path + function_name.
+        Each point's UUID is derived from the chunk's chunk_id (repo + file_path
+        + entity name + start line).
         Deterministic IDs mean upserting the same chunk twice is idempotent —
         the second upsert simply overwrites the first with identical data.
         This is safer than using random UUIDs, which would create duplicates
@@ -291,8 +292,8 @@ class QdrantIndexer:
             owner:  Repository owner.
             repo:   Repository name.
             chunks: List of CodeChunk objects (see indexing/chunk_schema.py).
-                    Each chunk must have .semantic_embedding and
-                    .structural_embedding already populated.
+                    Each chunk must have .semantic_vector and
+                    .structural_vector already populated.
         """
         collection_name = settings.qdrant_collection_name(owner, repo)
 
@@ -332,12 +333,11 @@ class QdrantIndexer:
                     # Deterministic UUID from content identity.
                     # uuid.uuid5 generates a UUID from a namespace + string,
                     # always producing the same UUID for the same input.
-                    id=str(
-                        uuid.uuid5(
-                            uuid.NAMESPACE_URL,
-                            f"{owner}/{repo}/{chunk.file_path}/{chunk.entity_name}"
-                        )
-                    ),
+                    # chunk_id (repo + file + name + start line) is used rather
+                    # than file + name alone: two entities with the same name in
+                    # one file (every Python class's __init__, Java overloads)
+                    # would otherwise map to one point and overwrite each other.
+                    id=str(uuid.uuid5(uuid.NAMESPACE_URL, chunk.chunk_id)),
                     # Named vectors — each key must match the collection's
                     # vector config defined in ensure_collection().
                     vector={

@@ -1,0 +1,380 @@
+{
+  "_meta": {
+    "description": "Manually-written question/ground-truth pairs for CodeSense retrieval + generation evaluation, as described in README.md 'Hybrid Retrieval Experiment' and 'Evaluation Results' sections.",
+    "repos": [
+      "https://github.com/tiangolo/fastapi",
+      "https://github.com/langchain-ai/langchain"
+    ],
+    "query_type_distribution": {
+      "lookup": 15,
+      "relational": 10,
+      "analytical": 8,
+      "summarization": 7,
+      "total": 40
+    },
+    "grounding_note": "File paths and function/class names in this dataset were fetched live from raw.githubusercontent.com against the 'master' branch of tiangolo/fastapi and langchain-ai/langchain (langchain-core/text-splitters live under libs/core and libs/text-splitters) at dataset-authoring time. Line numbers are NOT pinned because upstream files change frequently -- ground_truth_function/ground_truth_file are the stable identifiers this eval checks against. Before running run_eval.py against a freshly-ingested copy of either repo, spot check a handful of entries against the actual ingested commit, since upstream refactors (e.g. FastAPI's routing.py or langchain's runnables/base.py) can rename or move functions between releases.",
+    "ground_truth_answer_summary_note": "These are short, human-authored reference summaries used as the RAGAS 'ground_truth' / reference field for faithfulness and answer-relevancy scoring, not literal expected LLM output strings."
+  },
+  "queries": [
+    {
+      "id": "fa-lookup-01",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Where is dependency injection resolved for a path operation function?",
+      "query_type": "lookup",
+      "ground_truth_file": "fastapi/dependencies/utils.py",
+      "ground_truth_function": "solve_dependencies",
+      "ground_truth_answer_summary": "solve_dependencies() in fastapi/dependencies/utils.py walks a Dependant tree, recursively resolving sub-dependencies, and returns a SolvedDependency with the resolved values, errors, and background tasks for the path operation."
+    },
+    {
+      "id": "fa-lookup-02",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Where is the OAuth2 password bearer authentication scheme implemented?",
+      "query_type": "lookup",
+      "ground_truth_file": "fastapi/security/oauth2.py",
+      "ground_truth_function": "OAuth2PasswordBearer",
+      "ground_truth_answer_summary": "OAuth2PasswordBearer in fastapi/security/oauth2.py is a SecurityBase subclass that extracts a bearer token from the Authorization header for the OAuth2 password flow."
+    },
+    {
+      "id": "fa-lookup-03",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Where is the Authorization header split into scheme and token?",
+      "query_type": "lookup",
+      "ground_truth_file": "fastapi/security/utils.py",
+      "ground_truth_function": "get_authorization_scheme_param",
+      "ground_truth_answer_summary": "get_authorization_scheme_param() in fastapi/security/utils.py splits a raw Authorization header value into (scheme, param), e.g. ('Bearer', '<token>')."
+    },
+    {
+      "id": "fa-lookup-04",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Where does FastAPI convert arbitrary Python objects into JSON-serializable data?",
+      "query_type": "lookup",
+      "ground_truth_file": "fastapi/encoders.py",
+      "ground_truth_function": "jsonable_encoder",
+      "ground_truth_answer_summary": "jsonable_encoder() in fastapi/encoders.py recursively converts Pydantic models, dataclasses, dates, and other Python objects into JSON-compatible primitives (dict/list/str/int/etc.)."
+    },
+    {
+      "id": "fa-lookup-05",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Where is the default handler for HTTPException registered?",
+      "query_type": "lookup",
+      "ground_truth_file": "fastapi/exception_handlers.py",
+      "ground_truth_function": "http_exception_handler",
+      "ground_truth_answer_summary": "http_exception_handler() in fastapi/exception_handlers.py is the default async handler that converts a raised HTTPException into a JSONResponse with the appropriate status code and detail."
+    },
+    {
+      "id": "fa-lookup-06",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Where is a path operation function's signature inspected to build its dependency tree?",
+      "query_type": "lookup",
+      "ground_truth_file": "fastapi/dependencies/utils.py",
+      "ground_truth_function": "get_typed_signature",
+      "ground_truth_answer_summary": "get_typed_signature() in fastapi/dependencies/utils.py returns an inspect.Signature for a callable with forward-ref annotations resolved, which get_dependant() uses to build the Dependant tree."
+    },
+    {
+      "id": "fa-lookup-07",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Where is the request body validated and converted into function arguments?",
+      "query_type": "lookup",
+      "ground_truth_file": "fastapi/dependencies/utils.py",
+      "ground_truth_function": "request_body_to_args",
+      "ground_truth_answer_summary": "request_body_to_args() in fastapi/dependencies/utils.py validates the parsed request body against the declared body fields and returns resolved values plus any validation errors."
+    },
+    {
+      "id": "fa-lookup-08",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Where is the main FastAPI application class defined?",
+      "query_type": "lookup",
+      "ground_truth_file": "fastapi/applications.py",
+      "ground_truth_function": "FastAPI.__init__",
+      "ground_truth_answer_summary": "The FastAPI class in fastapi/applications.py subclasses Starlette; __init__ wires up OpenAPI metadata, middleware, exception handlers, and routing configuration for the whole application."
+    },
+    {
+      "id": "lc-lookup-01",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Where is the base Runnable interface's synchronous invoke method defined?",
+      "query_type": "lookup",
+      "ground_truth_file": "libs/core/langchain_core/runnables/base.py",
+      "ground_truth_function": "Runnable.invoke",
+      "ground_truth_answer_summary": "Runnable.invoke() in libs/core/langchain_core/runnables/base.py is the abstract synchronous entry point that every Runnable subclass (chains, prompts, LLMs, retrievers) implements to transform a single input into a single output."
+    },
+    {
+      "id": "lc-lookup-02",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Where is similarity search implemented for a vector store?",
+      "query_type": "lookup",
+      "ground_truth_file": "libs/core/langchain_core/vectorstores/base.py",
+      "ground_truth_function": "VectorStore.similarity_search",
+      "ground_truth_answer_summary": "VectorStore.similarity_search() in libs/core/langchain_core/vectorstores/base.py is the abstract method every vector store backend implements to return the k most similar Documents to a query string."
+    },
+    {
+      "id": "lc-lookup-03",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Where is the recursive character-based text splitter implemented?",
+      "query_type": "lookup",
+      "ground_truth_file": "libs/text-splitters/langchain_text_splitters/character.py",
+      "ground_truth_function": "RecursiveCharacterTextSplitter",
+      "ground_truth_answer_summary": "RecursiveCharacterTextSplitter in libs/text-splitters/langchain_text_splitters/character.py splits text by trying a prioritized list of separators (paragraph, newline, space, char) until chunks fit the target size."
+    },
+    {
+      "id": "lc-lookup-04",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Where does langchain parse a raw LLM text completion into JSON?",
+      "query_type": "lookup",
+      "ground_truth_file": "libs/core/langchain_core/output_parsers/json.py",
+      "ground_truth_function": "JsonOutputParser.parse_result",
+      "ground_truth_answer_summary": "JsonOutputParser.parse_result() in libs/core/langchain_core/output_parsers/json.py takes raw Generation objects and parses (optionally partial) JSON out of the model's text output."
+    },
+    {
+      "id": "lc-lookup-05",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Where is a chat prompt template that supports message placeholders defined?",
+      "query_type": "lookup",
+      "ground_truth_file": "libs/core/langchain_core/prompts/chat.py",
+      "ground_truth_function": "ChatPromptTemplate",
+      "ground_truth_answer_summary": "ChatPromptTemplate in libs/core/langchain_core/prompts/chat.py composes a sequence of message templates (including MessagesPlaceholder for injected chat history) into a formatted list of chat messages."
+    },
+    {
+      "id": "lc-lookup-06",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Where is a vector store exposed as a retriever object?",
+      "query_type": "lookup",
+      "ground_truth_file": "libs/core/langchain_core/vectorstores/base.py",
+      "ground_truth_function": "VectorStore.as_retriever",
+      "ground_truth_answer_summary": "VectorStore.as_retriever() in libs/core/langchain_core/vectorstores/base.py wraps the vector store in a VectorStoreRetriever so it can be used anywhere a Runnable retriever is expected."
+    },
+    {
+      "id": "lc-lookup-07",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Where is maximal marginal relevance (MMR) search implemented?",
+      "query_type": "lookup",
+      "ground_truth_file": "libs/core/langchain_core/vectorstores/base.py",
+      "ground_truth_function": "VectorStore.max_marginal_relevance_search",
+      "ground_truth_answer_summary": "VectorStore.max_marginal_relevance_search() in libs/core/langchain_core/vectorstores/base.py selects results that balance query relevance against diversity from already-selected results, reducing redundant retrieved chunks."
+    },
+    {
+      "id": "fa-relational-01",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "What calls solve_dependencies while handling an incoming request?",
+      "query_type": "relational",
+      "ground_truth_file": "fastapi/routing.py",
+      "ground_truth_function": "get_request_handler",
+      "ground_truth_answer_summary": "The request handler built by get_request_handler() in fastapi/routing.py calls solve_dependencies() (fastapi/dependencies/utils.py) once per request to resolve the path operation's Dependant tree before invoking the endpoint."
+    },
+    {
+      "id": "fa-relational-02",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "What function calls get_typed_signature when building a dependant?",
+      "query_type": "relational",
+      "ground_truth_file": "fastapi/dependencies/utils.py",
+      "ground_truth_function": "get_dependant",
+      "ground_truth_answer_summary": "get_dependant() in fastapi/dependencies/utils.py calls get_typed_signature() to obtain a fully-resolved inspect.Signature before iterating its parameters to build the Dependant tree."
+    },
+    {
+      "id": "fa-relational-03",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "What calls jsonable_encoder when building the outgoing HTTP response?",
+      "query_type": "relational",
+      "ground_truth_file": "fastapi/routing.py",
+      "ground_truth_function": "serialize_response",
+      "ground_truth_answer_summary": "serialize_response() in fastapi/routing.py calls jsonable_encoder() (fastapi/encoders.py) to turn the endpoint's return value into JSON-serializable data before wrapping it in a Response."
+    },
+    {
+      "id": "fa-relational-04",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "What calls request_body_to_args during dependency resolution?",
+      "query_type": "relational",
+      "ground_truth_file": "fastapi/dependencies/utils.py",
+      "ground_truth_function": "solve_dependencies",
+      "ground_truth_answer_summary": "solve_dependencies() in fastapi/dependencies/utils.py calls request_body_to_args() to validate and extract the request body fields declared on the path operation's Dependant."
+    },
+    {
+      "id": "fa-relational-05",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "What registers request_validation_exception_handler as the handler for validation errors?",
+      "query_type": "relational",
+      "ground_truth_file": "fastapi/applications.py",
+      "ground_truth_function": "FastAPI.__init__",
+      "ground_truth_answer_summary": "FastAPI.__init__() in fastapi/applications.py registers request_validation_exception_handler() (fastapi/exception_handlers.py) as the default exception handler for RequestValidationError."
+    },
+    {
+      "id": "lc-relational-01",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "What calls invoke on each step when a RunnableSequence executes?",
+      "query_type": "relational",
+      "ground_truth_file": "libs/core/langchain_core/runnables/base.py",
+      "ground_truth_function": "RunnableSequence.invoke",
+      "ground_truth_answer_summary": "RunnableSequence.invoke() in libs/core/langchain_core/runnables/base.py iterates its internal steps and calls each step's invoke(), piping the output of one step into the next."
+    },
+    {
+      "id": "lc-relational-02",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "What does VectorStoreRetriever call to fetch documents for a query?",
+      "query_type": "relational",
+      "ground_truth_file": "libs/core/langchain_core/vectorstores/base.py",
+      "ground_truth_function": "VectorStoreRetriever._get_relevant_documents",
+      "ground_truth_answer_summary": "VectorStoreRetriever._get_relevant_documents() in libs/core/langchain_core/vectorstores/base.py delegates to the underlying VectorStore's similarity_search() (or a variant, depending on search_type) to retrieve matching Documents."
+    },
+    {
+      "id": "lc-relational-03",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "What calls ainvoke on each branch when RunnableParallel executes asynchronously?",
+      "query_type": "relational",
+      "ground_truth_file": "libs/core/langchain_core/runnables/base.py",
+      "ground_truth_function": "RunnableParallel.ainvoke",
+      "ground_truth_answer_summary": "RunnableParallel.ainvoke() in libs/core/langchain_core/runnables/base.py gathers the ainvoke() coroutines of every branch Runnable and awaits them concurrently, assembling a dict of their outputs."
+    },
+    {
+      "id": "lc-relational-04",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "What calls the internal regex-based text splitting helper used by CharacterTextSplitter?",
+      "query_type": "relational",
+      "ground_truth_file": "libs/text-splitters/langchain_text_splitters/character.py",
+      "ground_truth_function": "CharacterTextSplitter",
+      "ground_truth_answer_summary": "CharacterTextSplitter's split_text path calls the module-level _split_text_with_regex() helper in libs/text-splitters/langchain_text_splitters/character.py to split on the configured separator."
+    },
+    {
+      "id": "fa-relational-06",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "What calls add_api_route when a router registers a new endpoint?",
+      "query_type": "relational",
+      "ground_truth_file": "fastapi/applications.py",
+      "ground_truth_function": "FastAPI.get",
+      "ground_truth_answer_summary": "Convenience decorators like FastAPI.get()/post()/put() in fastapi/applications.py call add_api_route() under the hood to register the endpoint, method, and path with the router."
+    },
+    {
+      "id": "fa-analytical-01",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Find inconsistent parameter-validation approaches across the OAuth2 security scheme classes.",
+      "query_type": "analytical",
+      "ground_truth_file": "fastapi/security/oauth2.py",
+      "ground_truth_function": "OAuth2PasswordBearer",
+      "ground_truth_answer_summary": "Across OAuth2, OAuth2PasswordBearer, and OAuth2AuthorizationCodeBearer in fastapi/security/oauth2.py, some __call__ implementations raise HTTPException directly on a missing/invalid header while others return None for auto_error=False, an inconsistency worth flagging to callers relying on uniform error behavior."
+    },
+    {
+      "id": "fa-analytical-02",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Find inconsistencies in how the different exception handlers format their error responses.",
+      "query_type": "analytical",
+      "ground_truth_file": "fastapi/exception_handlers.py",
+      "ground_truth_function": "http_exception_handler",
+      "ground_truth_answer_summary": "http_exception_handler, request_validation_exception_handler, and websocket_request_validation_exception_handler in fastapi/exception_handlers.py differ in response shape -- one returns a plain JSONResponse with 'detail', the other wraps validation errors as a list under 'detail', and the websocket variant sends a close frame instead of an HTTP response."
+    },
+    {
+      "id": "fa-analytical-03",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Find inconsistent naming or docstring conventions among the private helper functions in dependencies/utils.py.",
+      "query_type": "analytical",
+      "ground_truth_file": "fastapi/dependencies/utils.py",
+      "ground_truth_function": "get_flat_params",
+      "ground_truth_answer_summary": "Some private helpers in fastapi/dependencies/utils.py (e.g. _get_flat_body_params, _get_flat_fields_from_params) are underscore-prefixed and undocumented while closely related public helpers like get_flat_params carry full docstrings, an inconsistency in the module's documentation convention."
+    },
+    {
+      "id": "fa-analytical-04",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Find inconsistent naming conventions between public route-building functions and their private counterparts in routing.py.",
+      "query_type": "analytical",
+      "ground_truth_file": "fastapi/routing.py",
+      "ground_truth_function": "get_request_handler",
+      "ground_truth_answer_summary": "fastapi/routing.py mixes public-looking helpers (get_request_handler, request_response) with a large number of underscore-prefixed internals (_build_response_args, _get_fastapi_scope, _update_scope) that implement closely related routing-context logic -- the boundary between 'public helper' and 'private internal' is inconsistently drawn."
+    },
+    {
+      "id": "lc-analytical-01",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Find inconsistencies in how different Runnable subclasses implement stream() versus invoke().",
+      "query_type": "analytical",
+      "ground_truth_file": "libs/core/langchain_core/runnables/base.py",
+      "ground_truth_function": "RunnableSequence.stream",
+      "ground_truth_answer_summary": "Some Runnable subclasses in libs/core/langchain_core/runnables/base.py (e.g. RunnableSequence, RunnableLambda) implement a true incremental stream(), while others fall back to yielding the single result of invoke() -- an inconsistency in streaming semantics across the interface's implementers."
+    },
+    {
+      "id": "lc-analytical-02",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Find inconsistent duplication patterns between sync and async method pairs on Runnable subclasses.",
+      "query_type": "analytical",
+      "ground_truth_file": "libs/core/langchain_core/runnables/base.py",
+      "ground_truth_function": "RunnableParallel.ainvoke",
+      "ground_truth_answer_summary": "Sync/async pairs like RunnableSequence.invoke/ainvoke and RunnableParallel.invoke/ainvoke in libs/core/langchain_core/runnables/base.py largely mirror each other's logic, but some async variants add extra config-propagation or concurrency-limiting steps absent from their sync counterparts -- a maintenance-risk inconsistency."
+    },
+    {
+      "id": "lc-analytical-03",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Find inconsistent handling of empty or whitespace-only input across the text splitter implementations.",
+      "query_type": "analytical",
+      "ground_truth_file": "libs/text-splitters/langchain_text_splitters/character.py",
+      "ground_truth_function": "RecursiveCharacterTextSplitter",
+      "ground_truth_answer_summary": "CharacterTextSplitter and RecursiveCharacterTextSplitter in libs/text-splitters/langchain_text_splitters/character.py do not uniformly guard against empty-string input -- one path returns an empty list early while the recursive path may still attempt a regex split on empty text, an inconsistency worth flagging for a chunker meant to run over arbitrary code/text."
+    },
+    {
+      "id": "lc-analytical-04",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Find inconsistent score-normalization approaches across the vector store's relevance score functions.",
+      "query_type": "analytical",
+      "ground_truth_file": "libs/core/langchain_core/vectorstores/base.py",
+      "ground_truth_function": "VectorStore._cosine_relevance_score_fn",
+      "ground_truth_answer_summary": "_euclidean_relevance_score_fn, _cosine_relevance_score_fn, and _max_inner_product_relevance_score_fn in libs/core/langchain_core/vectorstores/base.py normalize distances to a similarity score using different formulas and assumptions about score range, so scores are not directly comparable across backends without knowing which function a given VectorStore selects."
+    },
+    {
+      "id": "fa-summarization-01",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Explain what fastapi/dependencies/utils.py does as a whole.",
+      "query_type": "summarization",
+      "ground_truth_file": "fastapi/dependencies/utils.py",
+      "ground_truth_function": "get_dependant",
+      "ground_truth_answer_summary": "fastapi/dependencies/utils.py builds the Dependant tree for a path operation from its function signature (get_dependant, analyze_param), then at request time resolves every dependency, path/query/header/cookie parameter, and the request body into the arguments the endpoint function needs (solve_dependencies, request_params_to_args, request_body_to_args)."
+    },
+    {
+      "id": "fa-summarization-02",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Summarize how fastapi/security/oauth2.py implements OAuth2 authentication flows.",
+      "query_type": "summarization",
+      "ground_truth_file": "fastapi/security/oauth2.py",
+      "ground_truth_function": "OAuth2PasswordBearer",
+      "ground_truth_answer_summary": "fastapi/security/oauth2.py provides SecurityBase subclasses (OAuth2, OAuth2PasswordBearer, OAuth2AuthorizationCodeBearer) that extract and validate credentials from the Authorization header for the password and authorization-code OAuth2 flows, plus OAuth2PasswordRequestForm(Strict) for parsing the token request body and SecurityScopes for scope-based authorization."
+    },
+    {
+      "id": "fa-summarization-03",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Explain the role of fastapi/routing.py in handling an HTTP request end-to-end.",
+      "query_type": "summarization",
+      "ground_truth_file": "fastapi/routing.py",
+      "ground_truth_function": "get_request_handler",
+      "ground_truth_answer_summary": "fastapi/routing.py defines APIRoute and the request-handling closures (get_request_handler, run_endpoint_function, serialize_response) that tie dependency resolution, endpoint invocation, and response serialization together for every incoming request matched to a route."
+    },
+    {
+      "id": "fa-summarization-04",
+      "repo_url": "https://github.com/tiangolo/fastapi",
+      "query": "Explain what fastapi/exception_handlers.py does.",
+      "query_type": "summarization",
+      "ground_truth_file": "fastapi/exception_handlers.py",
+      "ground_truth_function": "http_exception_handler",
+      "ground_truth_answer_summary": "fastapi/exception_handlers.py defines the default exception handlers FastAPI registers automatically: http_exception_handler for HTTPException, request_validation_exception_handler for RequestValidationError, and websocket_request_validation_exception_handler for validation errors on websocket connections."
+    },
+    {
+      "id": "lc-summarization-01",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Summarize what libs/core/langchain_core/runnables/base.py provides.",
+      "query_type": "summarization",
+      "ground_truth_file": "libs/core/langchain_core/runnables/base.py",
+      "ground_truth_function": "Runnable.invoke",
+      "ground_truth_answer_summary": "libs/core/langchain_core/runnables/base.py defines the Runnable protocol (invoke/ainvoke/batch/stream) that every LangChain component implements, plus composition primitives -- RunnableSequence for chaining, RunnableParallel for fan-out, RunnableLambda for wrapping plain functions, and RunnableBindingBase for pre-configuring a Runnable -- forming LangChain Expression Language (LCEL)."
+    },
+    {
+      "id": "lc-summarization-02",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Explain how libs/core/langchain_core/vectorstores/base.py structures document retrieval.",
+      "query_type": "summarization",
+      "ground_truth_file": "libs/core/langchain_core/vectorstores/base.py",
+      "ground_truth_function": "VectorStore.similarity_search",
+      "ground_truth_answer_summary": "libs/core/langchain_core/vectorstores/base.py defines the abstract VectorStore interface (add_texts, similarity_search, similarity_search_with_score, max_marginal_relevance_search) that concrete backends implement, plus VectorStoreRetriever which wraps any VectorStore as a Runnable retriever via as_retriever()."
+    },
+    {
+      "id": "lc-summarization-03",
+      "repo_url": "https://github.com/langchain-ai/langchain",
+      "query": "Summarize the text-splitting strategy implemented in libs/text-splitters/langchain_text_splitters/character.py.",
+      "query_type": "summarization",
+      "ground_truth_file": "libs/text-splitters/langchain_text_splitters/character.py",
+      "ground_truth_function": "RecursiveCharacterTextSplitter",
+      "ground_truth_answer_summary": "character.py implements CharacterTextSplitter, which splits on a single fixed separator, and RecursiveCharacterTextSplitter, which tries a prioritized list of separators (paragraphs, then lines, then words, then characters) recursively until every chunk fits the configured chunk_size, keeping chunk_overlap characters of context between adjacent chunks."
+    }
+  ]
+}
