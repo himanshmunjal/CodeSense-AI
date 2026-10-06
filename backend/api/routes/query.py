@@ -585,6 +585,153 @@ def _route_relational_query(
     return results
 
 
+# Graph expansion for LOOKUP/SUMMARIZATION. Semantic search finds the code
+# that *looks like* the question, but the answer often lives one hop away:
+# "where is the request context pushed?" matches AppContext.push, while the
+# line that pushes it is in its caller (Flask.wsgi_app). Pulling in the
+# direct neighbours of the top hits lets the reranker pick that caller.
+_EXPANSION_SEEDS = 3
+_EXPANSION_NEIGHBOURS_PER_SEED = 4
+# Neighbours inherit their seed's semantic score, discounted so they never
+# outrank the seed on hybrid_score alone — the cross-encoder decides.
+_EXPANSION_SCORE_DISCOUNT = 0.9
+
+
+def _is_test_path(file_path: str) -> bool:
+    parts = file_path.lower().split("/")
+    return any(p in ("test", "tests") for p in parts) or parts[-1].startswith("test_")
+
+
+def _expand_with_graph_neighbours(
+    candidates: list[HybridResult],
+    query_type: QueryType,
+    collection_name: str,
+    qdrant_client,
+) -> list[HybridResult]:
+    """
+    Add direct callers (and, for SUMMARIZATION, direct callees) of the top
+    semantic hits as extra candidates. Returns only the new candidates.
+
+    Callers matter for both types ("where does X happen" → the call site).
+    Callees matter for "how does X work" questions, where the flow continues
+    into the functions X hands off to (e.g. handle_user_exception).
+    """
+    if not graph_retriever.load_graph(collection_name):
+        return []
+
+    by_key = {(c.file_path, c.function_name): c for c in candidates}
+    added: list[HybridResult] = []
+
+    for seed in candidates[:_EXPANSION_SEEDS]:
+        seed_id = f"{seed.file_path}::{seed.function_name}"
+        traversals = [graph_retriever.get_callers(seed_id, collection_name, max_depth=1)]
+        if query_type == QueryType.SUMMARIZATION:
+            traversals.append(graph_retriever.get_callees(seed_id, collection_name, max_depth=1))
+
+        for result in traversals:
+            # _resolve_node falls back to fuzzy matching; a seed that isn't a
+            # graph node (e.g. a class chunk) would resolve to some unrelated
+            # method and drag in its neighbours. Only expand exact matches.
+            if result.query_node_id != seed_id:
+                continue
+            # Name-based call resolution fans out to every same-named method
+            # (full_dispatch_request "calls" four View.dispatch_request
+            # subclasses), which would crowd out the real neighbours under the
+            # cap. Prefer non-test code, then code in the seed's own file.
+            neighbours = sorted(
+                result.direct_relationships,
+                key=lambda n: (_is_test_path(n.file_path), n.file_path != seed.file_path),
+            )
+            for node in neighbours[:_EXPANSION_NEIGHBOURS_PER_SEED]:
+                key = (node.file_path, node.function_name)
+                existing = by_key.get(key)
+                if existing is not None:
+                    # Already a candidate (often a semantic hit itself, as
+                    # Flask.wsgi_app is) — still record the call edge so
+                    # _reserve_caller_slot can find it.
+                    if node.relationship_type == "direct_caller":
+                        existing.metadata.setdefault("caller_of", []).append(seed_id)
+                    continue
+                code, docstring = _fetch_snippet_for_node(qdrant_client, collection_name, node)
+                if not code:
+                    continue
+                score = seed.semantic_score * _EXPANSION_SCORE_DISCOUNT
+                neighbour = HybridResult(
+                    chunk_id=node.node_id,
+                    file_path=node.file_path,
+                    function_name=node.function_name,
+                    start_line=node.start_line,
+                    end_line=node.end_line,
+                    language=node.language,
+                    code=code,
+                    docstring=docstring,
+                    semantic_score=score,
+                    structural_score=0.0,
+                    hybrid_score=score,
+                    graph_distance=node.distance,
+                    metadata={
+                        "complexity": node.complexity,
+                        "relationship_type": node.relationship_type,
+                        "expanded_from": seed_id,
+                        "caller_of": (
+                            [seed_id] if node.relationship_type == "direct_caller" else []
+                        ),
+                    },
+                )
+                added.append(neighbour)
+                by_key[key] = neighbour
+
+    if added:
+        logger.debug(f"Graph expansion added {len(added)} neighbour candidates")
+    return added
+
+
+def _reserve_caller_slot(
+    top: list[RankedResult], all_ranked: list[RankedResult], max_results: int
+) -> list[RankedResult]:
+    """
+    For LOOKUP, guarantee the top hit's best non-test caller a place in the
+    final sources, replacing the lowest-ranked result if needed.
+
+    The cross-encoder (ms-marco, trained on web passages) judges each chunk
+    alone, so it scores Flask.wsgi_app at -2.9 for "where is the request
+    context pushed?" even though wsgi_app is the line that pushes it — the
+    relevance comes from the call edge, which the cross-encoder never sees.
+    Among eligible callers we still pick by cross-encoder score (wsgi_app
+    -2.9 beats AppContext.__enter__ -10.6).
+    """
+    if not top:
+        return top
+    # Anchor on the top *specific* result: the cross-encoder often ranks a
+    # class chunk first (AppContext 5.59 over AppContext.push 5.36), and a
+    # class has no callers in the call graph.
+    top_hit = _order_specific_before_containers(top)[0]
+    top_id = f"{top_hit.file_path}::{top_hit.function_name}"
+    present = {(r.file_path, r.function_name) for r in top}
+
+    caller = next(
+        (
+            r for r in all_ranked
+            if top_id in r.hybrid_result.metadata.get("caller_of", ())
+            and not _is_test_path(r.file_path)
+        ),
+        None,
+    )
+    if caller is None or (caller.file_path, caller.function_name) in present:
+        return top
+    if max_results < 2:
+        return top
+    dropped = top[max_results - 1:] if len(top) >= max_results else []
+    if dropped:
+        top = top[:max_results - 1]
+    logger.info(
+        f"Reserved caller slot: added {caller.function_name} "
+        f"(rerank={caller.rerank_score:.2f}), dropped "
+        f"{[r.function_name for r in dropped] or 'nothing'}"
+    )
+    return top + [caller]
+
+
 def _fetch_snippet_for_node(
     qdrant_client, collection_name: str, node: GraphNode
 ) -> tuple[str, str]:
@@ -635,6 +782,11 @@ def _fetch_snippet_for_node(
     return "", ""
 
 
+# Accepts the mandated ASCII "[path:fn:Lstart-Lend]" plus the variants the
+# model actually emits: full-width "【...】" brackets (observed on Groq models —
+# every citation in an answer silently went uncounted, showing "0/4 sources"
+# on a correctly cited answer), backticks (prompt_builder.py's own format),
+# and parentheses.
 _CITATION_PATTERN = re.compile(
     r"[\[【`(]\s*([^\[\]【】`()\s:]+):([^\[\]【】`():]+):"
     r"L?\d+\s*[-–]\s*L?\d+\s*[\]】`)]"
@@ -1003,6 +1155,10 @@ async def _execute_query(
             )
             for c in semantic_result.chunks
         ]
+        candidates += await asyncio.to_thread(
+            _expand_with_graph_neighbours,
+            candidates, query_type, collection_name, qdrant_client,
+        )
 
     elif query_type == QueryType.RELATIONAL:
         graph_loaded = await asyncio.to_thread(graph_retriever.load_graph, collection_name)
@@ -1178,12 +1334,17 @@ async def _execute_query(
     # top-K candidates, not the entire index.
     # The cross-encoder is CPU-bound (hundreds of ms for 30 candidates) — run
     # it off the event loop so concurrent requests aren't stalled behind it.
-    reranked: list[RankedResult] = await asyncio.to_thread(
+    # Score every candidate (rerank() does anyway) so a LOOKUP's reserved
+    # caller slot can be chosen by its cross-encoder score below.
+    all_ranked: list[RankedResult] = await asyncio.to_thread(
         reranker.rerank,
         query=question,
         candidates=candidates,
-        top_n=max_results,
+        top_n=len(candidates),
     )
+    reranked = all_ranked[:max_results]
+    if query_type == QueryType.LOOKUP:
+        reranked = _reserve_caller_slot(reranked, all_ranked, max_results)
 
     # ── Step 4: Confidence Threshold ─────────────────────────────────────────
     # IMPORTANT: RankedResult.rerank_score is a raw, UNBOUNDED cross-encoder

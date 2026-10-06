@@ -132,9 +132,55 @@ RULES YOU MUST FOLLOW WITHOUT EXCEPTION:
      "answer": "<your answer with inline citations>",
      "followup_queries": ["<query 1>", "<query 2>", "<query 3>"]
    }
-   The followup_queries array must contain exactly 3 suggested follow-up questions
+   The followup_queries array must contain 3 suggested follow-up questions
    that would help the developer understand this part of the codebase better.
+   Every follow-up must be about code that exists in the excerpts. The one exception:
+   if the excerpts do not contain what the developer asked about at all, do NOT
+   suggest follow-ups that assume it exists — return fewer, or an empty array.
 7. Do not include markdown formatting, code fences, or any text outside the JSON object."""
+
+
+# Per-query-type answer shape, appended to _SYSTEM_PROMPT.
+#
+# Without these, the model defaults to one or two sentences for every query,
+# which is right for "what calls X?" but drops half the flow for "how does X
+# handle Y?". Length should track the question, not be uniformly short or long.
+_TYPE_INSTRUCTIONS = {
+    QueryType.LOOKUP: (
+        "ANSWER SHAPE — LOOKUP:\n"
+        "Name the exact location that answers the question first. If the question "
+        "asks where something happens (is called, pushed, registered, raised), cite the "
+        "call site that does it, not only the definition of the method involved. Then "
+        "add 1-3 sentences of context: what triggers it and what it sets up. Do not "
+        "claim one function calls another unless the excerpt shows that call."
+    ),
+    QueryType.RELATIONAL: (
+        "ANSWER SHAPE — RELATIONAL:\n"
+        "List each relationship with direction (calls / is called by / imports) and a "
+        "citation for both sides. Keep it tight; one line per relationship plus one "
+        "sentence on what the caller does with the result is enough."
+    ),
+    QueryType.ANALYTICAL: (
+        "ANSWER SHAPE — ANALYTICAL:\n"
+        "Synthesize across excerpts: group similar implementations, call out any that "
+        "deviate, and cite each observation. Use as many short paragraphs as the "
+        "comparison needs."
+    ),
+    QueryType.SUMMARIZATION: (
+        "ANSWER SHAPE — EXPLANATION:\n"
+        "Walk through the flow step by step in 2-4 short paragraphs, citing each step. "
+        "Cover the normal path, any branches or short-circuits (e.g. an early return "
+        "that skips a later step), and for error-handling questions, where an error "
+        "goes if the first handler does not resolve it — follow it to the outer caller "
+        "if that caller is in the excerpts. Do not pad with information that is not in "
+        "the excerpts."
+    ),
+}
+
+
+def _system_prompt_for(query_type: QueryType) -> str:
+    instructions = _TYPE_INSTRUCTIONS.get(query_type)
+    return f"{_SYSTEM_PROMPT}\n\n{instructions}" if instructions else _SYSTEM_PROMPT
 
 
 def _build_context_block(sources: List[CodeSourceReference]) -> str:
@@ -352,8 +398,8 @@ def _parse_llm_output(
         logger.warning("followup_queries was not a list; defaulting to empty.")
         followup_queries = []
 
-    # Cap to 3 follow-up queries (the system prompt says "exactly 3" but
-    # The LLM occasionally returns 4 or 5 — clamp defensively)
+    # Cap to 3 follow-up queries (the system prompt asks for at most 3 but
+    # the LLM occasionally returns 4 or 5 — clamp defensively)
     followup_queries = followup_queries[:3]
 
     return CodeSenseResponse(
@@ -453,7 +499,7 @@ def generate(
     user_message = _build_user_message(query, sources)
 
     messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "system", "content": _system_prompt_for(query_type)},
         {"role": "user",   "content": user_message},
     ]
 
